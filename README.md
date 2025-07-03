@@ -2,6 +2,6 @@
 
 OMOP Accelerator v1 is contained in directory ...
 
-OMOP Accelerator v2 is contained in directory ...
+OMOP Accelerator v2 is contained in directory demo-HLS/lakehouse-patient-readmission
 
 Our goal in this project is to create OMOP Accelerator v3
