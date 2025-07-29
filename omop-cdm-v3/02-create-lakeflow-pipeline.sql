@@ -1,27 +1,22 @@
 -- Databricks notebook source
--- Databricks Auto Loader cloud_files will incrementally load new files, infering the column types and handling schema evolution for us.
+-- Databricks Auto Loader READ_FILES will incrementally load new files, infering the column types and handling schema evolution for us.
 -- data could be from any source: csv, json, parquet...
 
 CREATE OR REFRESH STREAMING TABLE patients
-  AS SELECT * FROM cloud_files("/Volumes/hls_omop/cdm_542/landing/patients/", "csv", 
-                                map("cloudFiles.inferColumnTypes", "true"));
+  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/patients/*.csv", FORMAT "csv");
 
 CREATE OR REFRESH STREAMING TABLE encounters
   AS SELECT * EXCEPT(START, STOP), to_timestamp(START) as START, to_timestamp(STOP) as STOP
-      FROM cloud_files("/Volumes/hls_omop/cdm_542/landing/encounters", "csv", 
-                                map("cloudFiles.inferColumnTypes", "true"));
+      FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/encounters/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE conditions
-  AS SELECT * FROM cloud_files("/Volumes/hls_omop/cdm_542/landing/conditions", "csv", 
-                                map("cloudFiles.inferColumnTypes", "true"));
+  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/conditions/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE medications
-  AS SELECT * FROM cloud_files("/Volumes/hls_omop/cdm_542/landing/medications", "csv", 
-                                map("cloudFiles.inferColumnTypes", "true"));
+  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/medications/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE immunizations
-  AS SELECT * FROM cloud_files("/Volumes/hls_omop/cdm_542/landing/immunizations", "csv", 
-                                map("cloudFiles.inferColumnTypes", "true"));
+  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/immunizations/*.csv", FORMAT => "csv");
 
 -- COMMAND ----------
 
@@ -49,7 +44,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 -- COMMAND ----------
 
 -- DBTITLE 1,IP_VISITS
--- CREATE LIVE VIEW ip_visits AS (
+-- CREATE VIEW ip_visits AS (
 -- WITH CTE_END_DATES AS (
 --   SELECT
 --     patient,
@@ -91,7 +86,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --                 stop
 --             ) AS START_ORDINAL
 --           FROM
---             live.encounters
+--             encounters
 --           WHERE
 --             encounterclass = 'inpatient'
 --           UNION ALL
@@ -102,7 +97,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --             1 AS EVENT_TYPE,
 --             NULL
 --           FROM
---             live.encounters
+--             encounters
 --           WHERE
 --             encounterclass = 'inpatient'
 --         ) RAWDATA
@@ -118,7 +113,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --     V.start AS VISIT_START_DATE,
 --     MIN(E.END_DATE) AS VISIT_END_DATE
 --   FROM
---     live.encounters V
+--     encounters V
 --     INNER JOIN CTE_END_DATES E ON V.patient = E.patient
 --     AND V.encounterclass = E.encounterclass
 --     AND E.END_DATE >= V.start
@@ -145,7 +140,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 -- COMMAND ----------
 
 -- DBTITLE 1,ER_VISITS
--- CREATE LIVE VIEW ER_VISITS AS
+-- CREATE VIEW ER_VISITS AS
 --     SELECT
 --       MIN(encounter_id) AS encounter_id,
 --       patient,
@@ -161,8 +156,8 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --           CL1.start AS VISIT_START_DATE,
 --           CL2.stop AS VISIT_END_DATE
 --         FROM
---           live.encounters CL1
---           INNER JOIN live.encounters CL2 ON CL1.patient = CL2.patient
+--           encounters CL1
+--           INNER JOIN encounters CL2 ON CL1.patient = CL2.patient
 --           AND CL1.start = CL2.start
 --           AND CL1.encounterclass = CL2.encounterclass
 --         WHERE
@@ -176,7 +171,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 -- COMMAND ----------
 
 -- DBTITLE 1,OP_VISITS
--- CREATE LIVE VIEW op_visits AS 
+-- CREATE VIEW op_visits AS 
 -- WITH CTE_VISITS_DISTINCT AS (
 --   SELECT
 --     MIN(id) AS encounter_id,
@@ -185,7 +180,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --     start AS VISIT_START_DATE,
 --     stop AS VISIT_END_DATE
 --   FROM
---     live.encounters
+--     encounters
 --   WHERE
 --     encounterclass in ('ambulatory', 'wellness', 'outpatient')
 --   GROUP BY
@@ -248,8 +243,8 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --     ELSE NULL
 --   END AS VISIT_OCCURRENCE_ID_NEW
 -- FROM
---   live.encounters E
---   INNER JOIN live.all_visits AV ON E.patient = AV.patient
+--   encounters E
+--   INNER JOIN all_visits AV ON E.patient = AV.patient
 --   AND E.start >= AV.VISIT_START_DATE
 --   AND E.start <= AV.VISIT_END_DATE;
 
@@ -265,11 +260,11 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --   *, ROW_NUMBER() OVER(ORDER BY patient) as visit_occurrence_id
 -- FROM
 --   (
---     SELECT * FROM live.ip_visits 
+--     SELECT * FROM ip_visits 
 --     UNION ALL
---     SELECT * FROM live.er_visits
+--     SELECT * FROM er_visits
 --     UNION ALL
---     SELECT * FROM live.op_visits
+--     SELECT * FROM op_visits
 --   );
 
 -- COMMAND ----------
@@ -310,7 +305,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 -- 					THEN 1
 -- 				ELSE 99
 -- 			END AS PRIORITY
--- 	FROM live.assign_all_visit_ids
+-- 	FROM assign_all_visit_ids
 -- 	) T1
 -- ) T2
 -- WHERE RN=1;
@@ -344,11 +339,11 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --     c1.INVALID_REASON AS TARGET_INVALID_REASON,
 --     c1.standard_concept AS TARGET_STANDARD_CONCEPT
 --   FROM
---     live.concept C
---     JOIN live.concept_relationship CR ON C.CONCEPT_ID = CR.CONCEPT_ID_1
+--     concept C
+--     JOIN concept_relationship CR ON C.CONCEPT_ID = CR.CONCEPT_ID_1
 --     AND CR.invalid_reason IS NULL
 --     AND lower(cr.relationship_id) = 'maps to'
---     JOIN live.concept C1 ON CR.CONCEPT_ID_2 = C1.CONCEPT_ID
+--     JOIN concept C1 ON CR.CONCEPT_ID_2 = C1.CONCEPT_ID
 --     AND C1.INVALID_REASON IS NULL
 
 -- COMMAND ----------
@@ -377,7 +372,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --     c.INVALID_REASON AS TARGET_INVALID_REASON,
 --     c.STANDARD_CONCEPT AS TARGET_STANDARD_CONCEPT
 --   FROM
---     live.CONCEPT c
+--     CONCEPT c
 
 -- COMMAND ----------
 
@@ -420,7 +415,7 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --   p.ethnicity as ETHNICITY_SOURCE_VALUE,
 --   0 as ETHNICITY_SOURCE_CONCEPT_ID
 -- from
---   live.patients p
+--   patients p
 -- where
 --   p.gender is not null;
 
@@ -450,19 +445,19 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --   coalesce(srctosrcvm.source_concept_id,0) as CONDITION_SOURCE_CONCEPT_ID,  
 --   0 as CONDITION_STATUS_SOURCE_VALUE, 
 --   0 as CONDITION_STATUS_CONCEPT_ID
--- from live.conditions c
--- inner join live.source_to_standard_vocab_map srctostdvm
+-- from conditions c
+-- inner join source_to_standard_vocab_map srctostdvm
 -- on srctostdvm.source_code             = c.code
 --  and srctostdvm.target_domain_id        = 'Condition'
 --  and srctostdvm.source_vocabulary_id    = 'SNOMED'
 --  and srctostdvm.target_standard_concept = 'S'
 --  and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
--- left join live.source_to_source_vocab_map srctosrcvm
+-- left joinsource_to_source_vocab_map srctosrcvm
 --   on srctosrcvm.source_code             = c.code
 --  and srctosrcvm.source_vocabulary_id    = 'SNOMED'
--- left join live.final_visit_ids fv
+-- left join final_visit_ids fv
 --   on fv.encounter_id = c.encounter
--- inner join live.person p
+-- inner join person p
 --   on c.patient = p.person_source_value
 
 -- COMMAND ----------
@@ -499,19 +494,19 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --       coalesce(srctosrcvm.source_concept_id, 0) AS drug_source_concept_id,
 --       '' AS route_source_value,  -- Changed from null to empty string
 --       '' AS dose_unit_source_value  -- Changed from null to empty string
---     FROM live.conditions c
---     JOIN live.source_to_standard_vocab_map srctostdvm
+--     FROM conditions c
+--     JOIN source_to_standard_vocab_map srctostdvm
 --       ON srctostdvm.source_code = c.code
 --       AND srctostdvm.target_domain_id = 'Drug'
 --       AND srctostdvm.source_vocabulary_id = 'RxNorm'
 --       AND srctostdvm.target_standard_concept = 'S'
 --       AND (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
---     LEFT JOIN live.source_to_source_vocab_map srctosrcvm
+--     LEFT JOIN source_to_source_vocab_map srctosrcvm
 --       ON srctosrcvm.source_code = c.code
 --       AND srctosrcvm.source_vocabulary_id = 'RxNorm'
---     LEFT JOIN live.final_visit_ids fv
+--     LEFT JOIN final_visit_ids fv
 --       ON fv.encounter_id = c.encounter
---     JOIN live.person p
+--     JOIN person p
 --       ON p.person_source_value = c.patient
 
 --     UNION ALL
@@ -524,19 +519,19 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --       '' AS sig, 0, 0, 0, fv.visit_occurrence_id_new AS visit_occurrence_id,
 --       0, m.code, coalesce(srctosrcvm.source_concept_id, 0),
 --       '' AS route_source_value, '' AS dose_unit_source_value
---     FROM live.medications m
---     JOIN live.source_to_standard_vocab_map srctostdvm
+--     FROM medications m
+--     JOIN source_to_standard_vocab_map srctostdvm
 --       ON srctostdvm.source_code = m.code
 --       AND srctostdvm.target_domain_id = 'Drug'
 --       AND srctostdvm.source_vocabulary_id = 'RxNorm'
 --       AND srctostdvm.target_standard_concept = 'S'
 --       AND (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
---     LEFT JOIN live.source_to_source_vocab_map srctosrcvm
+--     LEFT JOIN source_to_source_vocab_map srctosrcvm
 --       ON srctosrcvm.source_code = m.code
 --       AND srctosrcvm.source_vocabulary_id = 'RxNorm'
---     LEFT JOIN live.final_visit_ids fv
+--     LEFT JOIN final_visit_ids fv
 --       ON fv.encounter_id = m.encounter
---     JOIN live.person p
+--     JOIN person p
 --       ON p.person_source_value = m.patient
 
 --     UNION ALL
@@ -549,19 +544,19 @@ CREATE OR REFRESH STREAMING TABLE immunizations
 --       '' AS sig, 0, 0, 0, fv.visit_occurrence_id_new AS visit_occurrence_id,
 --       0, i.code, coalesce(srctosrcvm.source_concept_id, 0),
 --       '' AS route_source_value, '' AS dose_unit_source_value
---     FROM live.immunizations i
---     LEFT JOIN live.source_to_standard_vocab_map srctostdvm
+--     FROM immunizations i
+--     LEFT JOIN source_to_standard_vocab_map srctostdvm
 --       ON srctostdvm.source_code = i.code
 --       AND srctostdvm.target_domain_id = 'Drug'
 --       AND srctostdvm.source_vocabulary_id = 'CVX'
 --       AND srctostdvm.target_standard_concept = 'S'
 --       AND (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
---     LEFT JOIN live.source_to_source_vocab_map srctosrcvm
+--     LEFT JOIN source_to_source_vocab_map srctosrcvm
 --       ON srctosrcvm.source_code = i.code
 --       AND srctosrcvm.source_vocabulary_id = 'CVX'
---     LEFT JOIN live.final_visit_ids fv
+--     LEFT JOIN final_visit_ids fv
 --       ON fv.encounter_id = i.encounter
---     JOIN live.person p
+--     JOIN person p
 --       ON p.person_source_value = i.patient
 --   ) tmp;
 
