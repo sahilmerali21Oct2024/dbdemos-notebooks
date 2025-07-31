@@ -11,14 +11,14 @@
 
 dbutils.widgets.text(name = "catalog_name", defaultValue="hls_omop", label="Catalog Name")
 dbutils.widgets.text(name = "schema_name", defaultValue="vocab_542", label="Schema Name")
-dbutils.widgets.text(name = "volume_name", defaultValue="omop_vocab", label="Volume Name")
+# dbutils.widgets.text(name = "volume_name", defaultValue="omop_vocab", label="Volume Name")
 
 # COMMAND ----------
 
 catalog_name = dbutils.widgets.get(name = "catalog_name")
 schema_name = dbutils.widgets.get(name = "schema_name")
-volume_name = dbutils.widgets.get(name = "volume_name")
-vocab_path = f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/"
+# volume_name = dbutils.widgets.get(name = "volume_name")
+# vocab_path = f"/Volumes/{catalog_name}/{schema_name}/{volume_name}/"
 
 # COMMAND ----------
 
@@ -163,24 +163,15 @@ spark.sql(f'USE SCHEMA {schema_name}')
 
 # COMMAND ----------
 
-# download from Athena the vocabulary datasets: concept, concept_ancestor, concept_class, concept_relationship, concept_synonym, domain, drug_strength, relationship
-
-
-
-
-
-# COMMAND ----------
-
 # DBTITLE 1, config
-omop_version="OMOP531"
-project_name='omop-cdm-100K'
+omop_version="vocab_542"
+# project_name='omop-cdm-100K' # TO DO: see if this can be removed or if it is still necessary
 
-
-vocab_s3_path = "s3://hls-eng-data-public/data/rwe/omop-vocabs/"
+vocab_s3_path = "s3://hls-eng-data-public/data/rwe/omop-vocabs-v542/" # DONE: updated this path to the new location of the OMOP V5.4 vocabularies
 
 print(f"Using OMOP version {omop_version}")
 print(f"Using vocabulary tables in {vocab_s3_path}")
-spark.sql(f"USE {omop_version}")
+# spark.sql(f"USE {omop_version}")
 
 display(dbutils.fs.ls(vocab_s3_path))
 
@@ -191,6 +182,7 @@ display(dbutils.fs.ls(vocab_s3_path))
 
 # COMMAND ----------
 
+# TO DO: run this code with the vocabularies for V5.4 
 
 from pyspark.sql.functions import to_date
 spark.sql("set spark.sql.legacy.timeParserPolicy=LEGACY")
@@ -198,11 +190,12 @@ spark.sql("set spark.sql.legacy.parquet.datetimeRebaseModeInWrite=LEGACY")
 
 tablelist = ["CONCEPT","VOCABULARY","CONCEPT_ANCESTOR","CONCEPT_RELATIONSHIP","RELATIONSHIP","CONCEPT_SYNONYM","DOMAIN","CONCEPT_CLASS","DRUG_STRENGTH"]
 for table in tablelist:
-  df = spark.read.csv(f'{vocab_s3_path}/{table}.csv.gz', inferSchema=True, header=True, dateFormat="yyyy-MM-dd")
+  df = spark.read.csv(f'{vocab_s3_path}/{table}.csv', inferSchema=True, header=True, dateFormat="yyyy-MM-dd")
   if table in ["CONCEPT","CONCEPT_RELATIONSHIP","DRUG_STRENGTH"] :
-    df = df.withColumn('valid_start_date', to_date(df.valid_start_date,'yyyy-MM-dd')).withColumn('valid_end_date', to_date(df.valid_end_date,'yyyy-MM-dd'))
+    if 'valid_start_date' in df.columns and 'valid_end_date' in df.columns:    df = df.withColumn('valid_start_date', to_date(df.valid_start_date,'yyyy-MM-dd')).withColumn('valid_end_date', to_date(df.valid_end_date,'yyyy-MM-dd'))
+
     
-  df.write.format('delta').mode('overwrite').option('overwriteSchema','true').saveAsTable(omop_version+'.'+table)
+  df.write.format('delta').mode('overwrite').option('overwriteSchema','true').saveAsTable(f"{catalog_name}.{schema_name}.{table}")
 
 # COMMAND ----------
 
