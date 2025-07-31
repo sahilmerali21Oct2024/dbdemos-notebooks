@@ -1,4 +1,9 @@
 -- Databricks notebook source
+-- MAGIC %md
+-- MAGIC # 20250730 MC: I'm commenting out all of the code up until Cell 35. I just want to create the condition occurrence table today so that I can start testing the next notebook. All cells other than Cell 35 will need to be worked on.
+
+-- COMMAND ----------
+
 -- MAGIC %md 
 -- MAGIC You may find this series of notebooks at https://github.com/databricks-industry-solutions/omop-cdm. For more information about this solution accelerator, visit https://www.databricks.com/blog/2021/07/19/unlocking-the-power-of-health-data-with-a-modern-data-lakehouse.html.
 
@@ -11,44 +16,44 @@
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ## Load synthea tables from Bronze layer
+USE CATALOG hls_omop;
+USE SCHEMA cdm_542;
 
 -- COMMAND ----------
 
--- MAGIC %python
--- MAGIC import json
--- MAGIC
--- MAGIC project_name='omop-cdm-100K'
--- MAGIC omop_version="OMOP531"
--- MAGIC  
--- MAGIC with open(f'/tmp/{project_name}_configs.json','r') as f:
--- MAGIC     paths = json.load(f)
--- MAGIC     base_path = paths['base_path']
--- MAGIC     delta_path = paths['delta_path']
--- MAGIC
--- MAGIC delta_bronze_path = f'{delta_path}/bronze'
--- MAGIC delta_silver_path = f'{delta_path}/silver/{omop_version}'
+-- %python
+-- import json
+
+-- project_name='omop-cdm-100K'
+-- omop_version="OMOP531"
+ 
+-- with open(f'/tmp/{project_name}_configs.json','r') as f:
+--     paths = json.load(f)
+--     base_path = paths['base_path']
+--     delta_path = paths['delta_path']
+
+-- delta_bronze_path = f'{delta_path}/bronze'
+-- delta_silver_path = f'{delta_path}/silver/{omop_version}'
 
 -- COMMAND ----------
 
--- MAGIC %python
--- MAGIC table_names =['allergies','careplans','conditions','devices','encounters','imaging_studies',\
--- MAGIC               'immunizations','medications','observations','organizations','patients',\
--- MAGIC               'payer_transitions','payers','procedures','providers','supplies']
--- MAGIC for table_name in table_names:
--- MAGIC     sql(f"""
--- MAGIC     CREATE OR REPLACE TEMPORARY VIEW {table_name} AS (
--- MAGIC       SELECT * FROM delta.`{delta_bronze_path}/{table_name}`
--- MAGIC       )
--- MAGIC     """
--- MAGIC     )
+-- %python
+-- table_names =['allergies','careplans','conditions','devices','encounters','imaging_studies',\
+--               'immunizations','medications','observations','organizations','patients',\
+--               'payer_transitions','payers','procedures','providers','supplies']
+-- for table_name in table_names:
+--     sql(f"""
+--     CREATE OR REPLACE TEMPORARY VIEW {table_name} AS (
+--       SELECT * FROM delta.`{delta_bronze_path}/{table_name}`
+--       )
+--     """
+--     )
 
 -- COMMAND ----------
 
--- MAGIC %py
--- MAGIC sql(f"USE {omop_version};")
--- MAGIC print(f"Using OMOP version {omop_version}")
+-- %py
+-- sql(f"USE {omop_version};")
+-- print(f"Using OMOP version {omop_version}")
 
 -- COMMAND ----------
 
@@ -62,107 +67,107 @@
 
 -- COMMAND ----------
 
-CREATE OR REPLACE TEMPORARY VIEW IP_VISITS AS (
-WITH CTE_END_DATES AS (
-  SELECT
-    patient,
-    encounterclass,
-    DATE_ADD(EVENT_DATE, -1) AS END_DATE
-  FROM
-    (
-      SELECT
-        patient,
-        encounterclass,
-        EVENT_DATE,
-        EVENT_TYPE,
-        MAX(START_ORDINAL) OVER (
-          PARTITION BY patient,
-          encounterclass
-          ORDER BY
-            EVENT_DATE,
-            EVENT_TYPE ROWS UNBOUNDED PRECEDING
-        ) AS START_ORDINAL,
-        ROW_NUMBER() OVER (
-          PARTITION BY patient,
-          encounterclass
-          ORDER BY
-            EVENT_DATE,
-            EVENT_TYPE
-        ) AS OVERALL_ORD
-      FROM
-        (
-          SELECT
-            patient,
-            encounterclass,
-            start AS EVENT_DATE,
-            -1 AS EVENT_TYPE,
-            ROW_NUMBER () OVER (
-              PARTITION BY patient,
-              encounterclass
-              ORDER BY
-                start,
-                stop
-            ) AS START_ORDINAL
-          FROM
-            encounters
-          WHERE
-            encounterclass = 'inpatient'
-          UNION ALL
-          SELECT
-            patient,
-            encounterclass,
-            DATE_ADD(stop, 1),
-            1 AS EVENT_TYPE,
-            NULL
-          FROM
-            encounters
-          WHERE
-            encounterclass = 'inpatient'
-        ) RAWDATA
-    ) E
-  WHERE
-    (2 * E.START_ORDINAL - E.OVERALL_ORD = 0)
-),
-CTE_VISIT_ENDS AS (
-  SELECT
-    MIN(V.id) AS encounter_id,
-    V.patient,
-    V.encounterclass,
-    V.start AS VISIT_START_DATE,
-    MIN(E.END_DATE) AS VISIT_END_DATE
-  FROM
-    encounters V
-    INNER JOIN CTE_END_DATES E ON V.patient = E.patient
-    AND V.encounterclass = E.encounterclass
-    AND E.END_DATE >= V.start
-  GROUP BY
-    V.patient,
-    V.encounterclass,
-    V.start
-)
-SELECT
-  T2.encounter_id,
-  T2.patient,
-  T2.encounterclass,
-  T2.VISIT_START_DATE,
-  T2.VISIT_END_DATE
-FROM
-  (
-    SELECT
-      encounter_id,
-      patient,
-      encounterclass,
-      MIN(VISIT_START_DATE) AS VISIT_START_DATE,
-      VISIT_END_DATE
-    FROM
-      CTE_VISIT_ENDS
-    GROUP BY
-      encounter_id,
-      patient,
-      encounterclass,
-      VISIT_END_DATE
-  ) T2
-);
+-- CREATE OR REPLACE TEMPORARY VIEW IP_VISITS AS (
+-- WITH CTE_END_DATES AS (
+--   SELECT
+--     patient,
+--     encounterclass,
+--     DATE_ADD(EVENT_DATE, -1) AS END_DATE
+--   FROM
+--     (
+--       SELECT
+--         patient,
+--         encounterclass,
+--         EVENT_DATE,
+--         EVENT_TYPE,
+--         MAX(START_ORDINAL) OVER (
+--           PARTITION BY patient,
+--           encounterclass
+--           ORDER BY
+--             EVENT_DATE,
+--             EVENT_TYPE ROWS UNBOUNDED PRECEDING
+--         ) AS START_ORDINAL,
+--         ROW_NUMBER() OVER (
+--           PARTITION BY patient,
+--           encounterclass
+--           ORDER BY
+--             EVENT_DATE,
+--             EVENT_TYPE
+--         ) AS OVERALL_ORD
+--       FROM
+--         (
+--           SELECT
+--             patient,
+--             encounterclass,
+--             start AS EVENT_DATE,
+--             -1 AS EVENT_TYPE,
+--             ROW_NUMBER () OVER (
+--               PARTITION BY patient,
+--               encounterclass
+--               ORDER BY
+--                 start,
+--                 stop
+--             ) AS START_ORDINAL
+--           FROM
+--             encounters
+--           WHERE
+--             encounterclass = 'inpatient'
+--           UNION ALL
+--           SELECT
+--             patient,
+--             encounterclass,
+--             DATE_ADD(stop, 1),
+--             1 AS EVENT_TYPE,
+--             NULL
+--           FROM
+--             encounters
+--           WHERE
+--             encounterclass = 'inpatient'
+--         ) RAWDATA
+--     ) E
+--   WHERE
+--     (2 * E.START_ORDINAL - E.OVERALL_ORD = 0)
+-- ),
+-- CTE_VISIT_ENDS AS (
+--   SELECT
+--     MIN(V.id) AS encounter_id,
+--     V.patient,
+--     V.encounterclass,
+--     V.start AS VISIT_START_DATE,
+--     MIN(E.END_DATE) AS VISIT_END_DATE
+--   FROM
+--     encounters V
+--     INNER JOIN CTE_END_DATES E ON V.patient = E.patient
+--     AND V.encounterclass = E.encounterclass
+--     AND E.END_DATE >= V.start
+--   GROUP BY
+--     V.patient,
+--     V.encounterclass,
+--     V.start
+-- )
+-- SELECT
+--   T2.encounter_id,
+--   T2.patient,
+--   T2.encounterclass,
+--   T2.VISIT_START_DATE,
+--   T2.VISIT_END_DATE
+-- FROM
+--   (
+--     SELECT
+--       encounter_id,
+--       patient,
+--       encounterclass,
+--       MIN(VISIT_START_DATE) AS VISIT_START_DATE,
+--       VISIT_END_DATE
+--     FROM
+--       CTE_VISIT_ENDS
+--     GROUP BY
+--       encounter_id,
+--       patient,
+--       encounterclass,
+--       VISIT_END_DATE
+--   ) T2
+-- );
 
 -- COMMAND ----------
 
@@ -171,42 +176,42 @@ FROM
 
 -- COMMAND ----------
 
-CREATE OR REPLACE TEMPORARY VIEW ER_VISITS AS
-SELECT
-  T2.encounter_id,
-  T2.patient,
-  T2.encounterclass,
-  T2.VISIT_START_DATE,
-  T2.VISIT_END_DATE
-FROM
-  (
-    SELECT
-      MIN(encounter_id) AS encounter_id,
-      patient,
-      encounterclass,
-      VISIT_START_DATE,
-      MAX(VISIT_END_DATE) AS VISIT_END_DATE
-    FROM
-      (
-        SELECT
-          CL1.id AS encounter_id,
-          CL1.patient,
-          CL1.encounterclass,
-          CL1.start AS VISIT_START_DATE,
-          CL2.stop AS VISIT_END_DATE
-        FROM
-          encounters CL1
-          INNER JOIN encounters CL2 ON CL1.patient = CL2.patient
-          AND CL1.start = CL2.start
-          AND CL1.encounterclass = CL2.encounterclass
-        WHERE
-          CL1.encounterclass in ('emergency', 'urgent')
-      ) T1
-    GROUP BY
-      patient,
-      encounterclass,
-      VISIT_START_DATE
-  ) T2;
+-- CREATE OR REPLACE TEMPORARY VIEW ER_VISITS AS
+-- SELECT
+--   T2.encounter_id,
+--   T2.patient,
+--   T2.encounterclass,
+--   T2.VISIT_START_DATE,
+--   T2.VISIT_END_DATE
+-- FROM
+--   (
+--     SELECT
+--       MIN(encounter_id) AS encounter_id,
+--       patient,
+--       encounterclass,
+--       VISIT_START_DATE,
+--       MAX(VISIT_END_DATE) AS VISIT_END_DATE
+--     FROM
+--       (
+--         SELECT
+--           CL1.id AS encounter_id,
+--           CL1.patient,
+--           CL1.encounterclass,
+--           CL1.start AS VISIT_START_DATE,
+--           CL2.stop AS VISIT_END_DATE
+--         FROM
+--           encounters CL1
+--           INNER JOIN encounters CL2 ON CL1.patient = CL2.patient
+--           AND CL1.start = CL2.start
+--           AND CL1.encounterclass = CL2.encounterclass
+--         WHERE
+--           CL1.encounterclass in ('emergency', 'urgent')
+--       ) T1
+--     GROUP BY
+--       patient,
+--       encounterclass,
+--       VISIT_START_DATE
+--   ) T2;
 
 -- COMMAND ----------
 
@@ -215,36 +220,36 @@ FROM
 
 -- COMMAND ----------
 
-CREATE
-OR REPLACE TEMPORARY VIEW OP_VISITS AS WITH CTE_VISITS_DISTINCT AS (
-  SELECT
-    MIN(id) AS encounter_id,
-    patient,
-    encounterclass,
-    start AS VISIT_START_DATE,
-    stop AS VISIT_END_DATE
-  FROM
-    encounters
-  WHERE
-    encounterclass in ('ambulatory', 'wellness', 'outpatient')
-  GROUP BY
-    patient,
-    encounterclass,
-    start,
-    stop
-)
-SELECT
-  MIN(encounter_id) AS encounter_id,
-  patient,
-  encounterclass,
-  VISIT_START_DATE,
-  MAX(VISIT_END_DATE) AS VISIT_END_DATE
-FROM
-  CTE_VISITS_DISTINCT
-GROUP BY
-  patient,
-  encounterclass,
-  VISIT_START_DATE;
+-- CREATE
+-- OR REPLACE TEMPORARY VIEW OP_VISITS AS WITH CTE_VISITS_DISTINCT AS (
+--   SELECT
+--     MIN(id) AS encounter_id,
+--     patient,
+--     encounterclass,
+--     start AS VISIT_START_DATE,
+--     stop AS VISIT_END_DATE
+--   FROM
+--     encounters
+--   WHERE
+--     encounterclass in ('ambulatory', 'wellness', 'outpatient')
+--   GROUP BY
+--     patient,
+--     encounterclass,
+--     start,
+--     stop
+-- )
+-- SELECT
+--   MIN(encounter_id) AS encounter_id,
+--   patient,
+--   encounterclass,
+--   VISIT_START_DATE,
+--   MAX(VISIT_END_DATE) AS VISIT_END_DATE
+-- FROM
+--   CTE_VISITS_DISTINCT
+-- GROUP BY
+--   patient,
+--   encounterclass,
+--   VISIT_START_DATE;
 
 -- COMMAND ----------
 
@@ -258,41 +263,41 @@ GROUP BY
 
 -- COMMAND ----------
 
-DROP TABLE IF EXISTS all_visits;
-CREATE TABLE all_visits
-SELECT
-  *,
-  ROW_NUMBER() OVER(
-    ORDER BY
-      patient
-  ) as visit_occurrence_id
-FROM
-  (
-    SELECT
-      *
-    FROM
-      IP_VISITS
-    UNION ALL
-    SELECT
-      *
-    FROM
-      ER_VISITS
-    UNION ALL
-    SELECT
-      *
-    FROM
-      OP_VISITS
-  ) T1;
+-- DROP TABLE IF EXISTS all_visits;
+-- CREATE TABLE all_visits
+-- SELECT
+--   *,
+--   ROW_NUMBER() OVER(
+--     ORDER BY
+--       patient
+--   ) as visit_occurrence_id
+-- FROM
+--   (
+--     SELECT
+--       *
+--     FROM
+--       IP_VISITS
+--     UNION ALL
+--     SELECT
+--       *
+--     FROM
+--       ER_VISITS
+--     UNION ALL
+--     SELECT
+--       *
+--     FROM
+--       OP_VISITS
+--   ) T1;
 
 
 -- COMMAND ----------
 
-SELECT
-  *
-FROM
-  all_visits
-LIMIT
-  100;
+-- SELECT
+--   *
+-- FROM
+--   all_visits
+-- LIMIT
+--   100;
 
 -- COMMAND ----------
 
@@ -301,50 +306,50 @@ LIMIT
 
 -- COMMAND ----------
 
-DROP TABLE IF EXISTS assign_all_visit_ids;
-CREATE TABLE assign_all_visit_ids
-SELECT
-  E.id AS encounter_id,
-  E.patient as person_source_value,
-  E.start AS date_service,
-  E.stop AS date_service_end,
-  E.encounterclass,
-  AV.encounterclass AS VISIT_TYPE,
-  AV.VISIT_START_DATE,
-  AV.VISIT_END_DATE,
-  AV.VISIT_OCCURRENCE_ID,
-  CASE
-    WHEN E.encounterclass = 'inpatient'
-    and AV.encounterclass = 'inpatient' THEN VISIT_OCCURRENCE_ID
-    WHEN E.encounterclass in ('emergency', 'urgent') THEN (
-      CASE
-        WHEN AV.encounterclass = 'inpatient'
-        AND E.start > AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
-        WHEN AV.encounterclass in ('emergency', 'urgent')
-        AND E.start = AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
-        ELSE NULL
-      END
-    )
-    WHEN E.encounterclass in ('ambulatory', 'wellness', 'outpatient') THEN (
-      CASE
-        WHEN AV.encounterclass = 'inpatient'
-        AND E.start >= AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
-        WHEN AV.encounterclass in ('ambulatory', 'wellness', 'outpatient') THEN VISIT_OCCURRENCE_ID
-        ELSE NULL
-      END
-    )
-    ELSE NULL
-  END AS VISIT_OCCURRENCE_ID_NEW
-FROM
-  ENCOUNTERS E
-  INNER JOIN ALL_VISITS AV ON E.patient = AV.patient
-  AND E.start >= AV.VISIT_START_DATE
-  AND E.start <= AV.VISIT_END_DATE;
+-- DROP TABLE IF EXISTS assign_all_visit_ids;
+-- CREATE TABLE assign_all_visit_ids
+-- SELECT
+--   E.id AS encounter_id,
+--   E.patient as person_source_value,
+--   E.start AS date_service,
+--   E.stop AS date_service_end,
+--   E.encounterclass,
+--   AV.encounterclass AS VISIT_TYPE,
+--   AV.VISIT_START_DATE,
+--   AV.VISIT_END_DATE,
+--   AV.VISIT_OCCURRENCE_ID,
+--   CASE
+--     WHEN E.encounterclass = 'inpatient'
+--     and AV.encounterclass = 'inpatient' THEN VISIT_OCCURRENCE_ID
+--     WHEN E.encounterclass in ('emergency', 'urgent') THEN (
+--       CASE
+--         WHEN AV.encounterclass = 'inpatient'
+--         AND E.start > AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
+--         WHEN AV.encounterclass in ('emergency', 'urgent')
+--         AND E.start = AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
+--         ELSE NULL
+--       END
+--     )
+--     WHEN E.encounterclass in ('ambulatory', 'wellness', 'outpatient') THEN (
+--       CASE
+--         WHEN AV.encounterclass = 'inpatient'
+--         AND E.start >= AV.VISIT_START_DATE THEN VISIT_OCCURRENCE_ID
+--         WHEN AV.encounterclass in ('ambulatory', 'wellness', 'outpatient') THEN VISIT_OCCURRENCE_ID
+--         ELSE NULL
+--       END
+--     )
+--     ELSE NULL
+--   END AS VISIT_OCCURRENCE_ID_NEW
+-- FROM
+--   ENCOUNTERS E
+--   INNER JOIN ALL_VISITS AV ON E.patient = AV.patient
+--   AND E.start >= AV.VISIT_START_DATE
+--   AND E.start <= AV.VISIT_END_DATE;
 
 
 -- COMMAND ----------
 
-SELECT * FROM assign_all_visit_ids LIMIT 100;
+-- SELECT * FROM assign_all_visit_ids LIMIT 100;
 
 -- COMMAND ----------
 
@@ -353,47 +358,47 @@ SELECT * FROM assign_all_visit_ids LIMIT 100;
 
 -- COMMAND ----------
 
-DROP TABLE IF EXISTS final_visit_ids;
-CREATE TABLE final_visit_ids
-SELECT encounter_id, VISIT_OCCURRENCE_ID_NEW
-FROM(
-	SELECT *, ROW_NUMBER () OVER (PARTITION BY encounter_id ORDER BY PRIORITY) AS RN
-	FROM (
-		SELECT *,
-			CASE
-				WHEN encounterclass in ('emergency','urgent')
-					THEN (
-						CASE
-							WHEN VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
-								THEN 1
-							WHEN VISIT_TYPE in ('emergency','urgent') AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
-								THEN 2
-							ELSE 99
-						END
-					)
-				WHEN encounterclass in ('ambulatory', 'wellness', 'outpatient')
-					THEN (
-						CASE
-							WHEN VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
-								THEN  1
-							WHEN VISIT_TYPE in ('ambulatory', 'wellness', 'outpatient') AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
-								THEN 2
-							ELSE 99
-						END
-					)
-				WHEN encounterclass = 'inpatient' AND VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
-					THEN 1
-				ELSE 99
-			END AS PRIORITY
-	FROM ASSIGN_ALL_VISIT_IDS
-	) T1
-) T2
-WHERE RN=1;
+-- DROP TABLE IF EXISTS final_visit_ids;
+-- CREATE TABLE final_visit_ids
+-- SELECT encounter_id, VISIT_OCCURRENCE_ID_NEW
+-- FROM(
+-- 	SELECT *, ROW_NUMBER () OVER (PARTITION BY encounter_id ORDER BY PRIORITY) AS RN
+-- 	FROM (
+-- 		SELECT *,
+-- 			CASE
+-- 				WHEN encounterclass in ('emergency','urgent')
+-- 					THEN (
+-- 						CASE
+-- 							WHEN VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
+-- 								THEN 1
+-- 							WHEN VISIT_TYPE in ('emergency','urgent') AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
+-- 								THEN 2
+-- 							ELSE 99
+-- 						END
+-- 					)
+-- 				WHEN encounterclass in ('ambulatory', 'wellness', 'outpatient')
+-- 					THEN (
+-- 						CASE
+-- 							WHEN VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
+-- 								THEN  1
+-- 							WHEN VISIT_TYPE in ('ambulatory', 'wellness', 'outpatient') AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
+-- 								THEN 2
+-- 							ELSE 99
+-- 						END
+-- 					)
+-- 				WHEN encounterclass = 'inpatient' AND VISIT_TYPE = 'inpatient' AND VISIT_OCCURRENCE_ID_NEW IS NOT NULL
+-- 					THEN 1
+-- 				ELSE 99
+-- 			END AS PRIORITY
+-- 	FROM ASSIGN_ALL_VISIT_IDS
+-- 	) T1
+-- ) T2
+-- WHERE RN=1;
 
 
 -- COMMAND ----------
 
-SELECT * FROM final_visit_ids LIMIT 100;
+-- SELECT * FROM final_visit_ids LIMIT 100;
 
 -- COMMAND ----------
 
@@ -402,57 +407,57 @@ SELECT * FROM final_visit_ids LIMIT 100;
 
 -- COMMAND ----------
 
-INSERT
-  OVERWRITE person
-SELECT
-  ROW_NUMBER() OVER(
-    ORDER BY
-      p.id
-  ),
-  case
-    upper(p.gender)
-    when 'M' then 8507
-    when 'F' then 8532
-  end,
-  YEAR(p.birthdate),
-  MONTH(p.birthdate),
-  DAY(p.birthdate),
-  p.birthdate,
-  case
-    upper(p.race)
-    when 'WHITE' then 8527
-    when 'BLACK' then 8516
-    when 'ASIAN' then 8515
-    else 0
-  end,
-  case
-    when upper(p.race) = 'HISPANIC' then 38003563
-    else 0
-  end,
-  NULL,
-  0,
-  NULL,
-  p.id,
-  p.gender,
-  0,
-  p.race,
-  0,
-  p.ethnicity,
-  0
-from
-  patients p
-where
-  p.gender is not null;
+-- INSERT
+--   OVERWRITE person
+-- SELECT
+--   ROW_NUMBER() OVER(
+--     ORDER BY
+--       p.id
+--   ),
+--   case
+--     upper(p.gender)
+--     when 'M' then 8507
+--     when 'F' then 8532
+--   end,
+--   YEAR(p.birthdate),
+--   MONTH(p.birthdate),
+--   DAY(p.birthdate),
+--   p.birthdate,
+--   case
+--     upper(p.race)
+--     when 'WHITE' then 8527
+--     when 'BLACK' then 8516
+--     when 'ASIAN' then 8515
+--     else 0
+--   end,
+--   case
+--     when upper(p.race) = 'HISPANIC' then 38003563
+--     else 0
+--   end,
+--   NULL,
+--   0,
+--   NULL,
+--   p.id,
+--   p.gender,
+--   0,
+--   p.race,
+--   0,
+--   p.ethnicity,
+--   0
+-- from
+--   patients p
+-- where
+--   p.gender is not null;
 
 
 -- COMMAND ----------
 
-SELECT
-  *
-FROM
-  person
-LIMIT
-  100;
+-- SELECT
+--   *
+-- FROM
+--   person
+-- LIMIT
+--   100;
 
 -- COMMAND ----------
 
@@ -461,39 +466,39 @@ LIMIT
 
 -- COMMAND ----------
 
-INSERT
-  OVERWRITE observation_period
-SELECT
-  ROW_NUMBER() OVER(
-    ORDER BY
-      person_id
-  ),
-  person_id,
-  start_date,
-  end_date,
-  44814724 AS period_type_concept_id
-FROM
-  (
-    SELECT
-      p.person_id,
-      MIN(e.start) AS start_date,
-      MAX(e.stop) AS end_date
-    FROM
-      person p
-      INNER JOIN encounters e ON p.person_source_value = e.patient
-    GROUP BY
-      p.person_id
-  ) tmp;
+-- INSERT
+--   OVERWRITE observation_period
+-- SELECT
+--   ROW_NUMBER() OVER(
+--     ORDER BY
+--       person_id
+--   ),
+--   person_id,
+--   start_date,
+--   end_date,
+--   44814724 AS period_type_concept_id
+-- FROM
+--   (
+--     SELECT
+--       p.person_id,
+--       MIN(e.start) AS start_date,
+--       MAX(e.stop) AS end_date
+--     FROM
+--       person p
+--       INNER JOIN encounters e ON p.person_source_value = e.patient
+--     GROUP BY
+--       p.person_id
+--   ) tmp;
 
 
 -- COMMAND ----------
 
-SELECT
-  *
-FROM
-  observation_period
-LIMIT
-  100;
+-- SELECT
+--   *
+-- FROM
+--   observation_period
+-- LIMIT
+--   100;
 
 -- COMMAND ----------
 
@@ -502,59 +507,59 @@ LIMIT
 
 -- COMMAND ----------
 
-INSERT
-  OVERWRITE visit_occurrence
-select
-  av.visit_occurrence_id,
-  p.person_id,
-  case
-    lower(av.encounterclass)
-    when 'ambulatory' then 9202
-    when 'emergency' then 9203
-    when 'inpatient' then 9201
-    when 'wellness' then 9202
-    when 'urgentcare' then 9203
-    when 'outpatient' then 9202
-    else 0
-  end,
-  av.visit_start_date,
-  av.visit_start_date,
-  av.visit_end_date,
-  av.visit_end_date,
-  44818517,
-  0,
-  null,
-  av.encounter_id,
-  0,
-  0,
-  NULL,
-  0,
-  NULL,
-  lag(visit_occurrence_id) over(
-    partition by p.person_id
-    order by
-      av.visit_start_date
-  )
-from
-  all_visits av
-  join person p on av.patient = p.person_source_value
-where
-  av.visit_occurrence_id in (
-    select
-      distinct visit_occurrence_id_new
-    from
-      final_visit_ids
-  );
+-- INSERT
+--   OVERWRITE visit_occurrence
+-- select
+--   av.visit_occurrence_id,
+--   p.person_id,
+--   case
+--     lower(av.encounterclass)
+--     when 'ambulatory' then 9202
+--     when 'emergency' then 9203
+--     when 'inpatient' then 9201
+--     when 'wellness' then 9202
+--     when 'urgentcare' then 9203
+--     when 'outpatient' then 9202
+--     else 0
+--   end,
+--   av.visit_start_date,
+--   av.visit_start_date,
+--   av.visit_end_date,
+--   av.visit_end_date,
+--   44818517,
+--   0,
+--   null,
+--   av.encounter_id,
+--   0,
+--   0,
+--   NULL,
+--   0,
+--   NULL,
+--   lag(visit_occurrence_id) over(
+--     partition by p.person_id
+--     order by
+--       av.visit_start_date
+--   )
+-- from
+--   all_visits av
+--   join person p on av.patient = p.person_source_value
+-- where
+--   av.visit_occurrence_id in (
+--     select
+--       distinct visit_occurrence_id_new
+--     from
+--       final_visit_ids
+--   );
 
 
 -- COMMAND ----------
 
-SELECT
-  *
-FROM
-  visit_occurrence
-LIMIT
-  100;
+-- SELECT
+--   *
+-- FROM
+--   visit_occurrence
+-- LIMIT
+--   100;
 
 -- COMMAND ----------
 
@@ -563,7 +568,7 @@ LIMIT
 
 -- COMMAND ----------
 
-INSERT OVERWRITE condition_occurrence
+CREATE MATERIALIZED VIEW condition_occurrence AS
 select
   row_number()over(order by p.person_id),
   p.person_id,
