@@ -3,20 +3,26 @@
 -- data could be from any source: csv, json, parquet...
 
 CREATE OR REFRESH STREAMING TABLE patients
-  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/patients/*.csv", FORMAT "csv");
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/patients/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE encounters
   AS SELECT * EXCEPT(START, STOP), to_timestamp(START) as START, to_timestamp(STOP) as STOP
-      FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/encounters/*.csv", FORMAT => "csv");
+      FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/encounters/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE conditions
-  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/conditions/*.csv", FORMAT => "csv");
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/conditions/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE medications
-  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/medications/*.csv", FORMAT => "csv");
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/medications/*.csv", FORMAT => "csv");
 
 CREATE OR REFRESH STREAMING TABLE immunizations
-  AS SELECT * FROM READ_FILES("/Volumes/hls_omop/cdm_542/landing/immunizations/*.csv", FORMAT => "csv");
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/immunizations/*.csv", FORMAT => "csv");
+
+CREATE OR REFRESH STREAMING TABLE organizations
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/organizations/*.csv", FORMAT => "csv");
+
+CREATE OR REFRESH STREAMING TABLE providers
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/providers/*.csv", FORMAT => "csv");
 
 -- COMMAND ----------
 
