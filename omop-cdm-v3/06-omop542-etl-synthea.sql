@@ -1,6 +1,6 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC # 20250730 MC: I'm commenting out all of the code up until Cell 35. I just want to create the condition occurrence table today so that I can start testing the next notebook. All cells other than Cell 35 will need to be worked on.
+-- MAGIC Matt Cutini on 20250811: The code that's in this notebook should be combined with the code that's in notebook '04-omop542-cdm-setup' and the combined result should be turned into a Lakeflow Declarative Pipeline. 
 
 -- COMMAND ----------
 
