@@ -1,12 +1,12 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC Matt Cutini on 20250806: This notebook is a carry-over from the old accelerator notebook '2-omop531-cdm-setup' and I am starting to go through the cells and create streaming tables while also incorporating the code from the old notebook '4-omop531-etl-synthea'. In the end we should have one set of code that combines the old notebooks and creates STs and MVs in a Lakeflow Declarative Pipeline.
+-- MAGIC Matt Cutini on 20250806: This notebook is a carry-over from the old accelerator notebook '2-omop531-cdm-setup' and I am starting to go through the cells and create streaming tables while also incorporating the code from the old notebook '4-omop531-etl-synthea'. In the end we should have one set of code that combines the old notebooks and creates STs and MVs in a Lakeflow Declarative Pipeline. In the end we will probably not have this notebook at all, and will just have what's currently called notebook '05-omop542-vocab-setup' run and then have the Lakeflow Declarative Pipeline run. 
 
 -- COMMAND ----------
 
 -- DBTITLE 0,Drop Existing Database
-CREATE STREAMING TABLE person 
-AS
+-- CREATE STREAMING TABLE person 
+-- AS
 SELECT
   hash(ID) AS PERSON_ID
 , GENDER AS GENDER_CONCEPT_ID
@@ -15,7 +15,7 @@ SELECT
 , DAY(BIRTHDATE) AS DAY_OF_BIRTH
 , BIRTHDATE AS BIRTH_DATETIME
 , RACE.CONCEPT_ID AS RACE_CONCEPT_ID
-, ETHNICITY.CONCEPT_ID AS ETHNICITY_CONCEPT_ID
+-- , ETHNICITY.CONCEPT_ID AS ETHNICITY_CONCEPT_ID
 , NULL AS LOCATION_ID
 , NULL AS PROVIDER_ID
 , NULL AS CARE_SITE_ID
@@ -27,8 +27,8 @@ SELECT
 , ETHNICITY AS ETHNICITY_SOURCE_VALUE
 , NULL AS ETHNICITY_SOURCE_CONCEPT_ID
 FROM hls_omop.cdm_542.patients
-JOIN hls_omop.vocab_531.concept RACE ON UPPER(RACE.CONCEPT_NAME) = UPPER(patients.RACE) -- TO DO: replace this vocab_531 table with voca_542 when it is ready
-JOIN hls_omop.vocab_531.concept ETHNICITY ON UPPER(ETHNICITY.CONCEPT_NAME) = UPPER(patients.ETHNICITY) -- TO DO: in addition to the above TO DO, further specify the join criteria
+LEFT JOIN hls_omop.vocab_542.concept RACE ON UPPER(RACE.CONCEPT_NAME) = UPPER(patients.RACE) AND UPPER(RACE.DOMAIN_ID) = 'RACE' AND UPPER(RACE.concept_class_id) = 'RACE' AND UPPER(RACE.vocabulary_id) = 'RACE'
+-- LEFT JOIN hls_omop.vocab_542.concept ETHNICITY ON UPPER(ETHNICITY.CONCEPT_NAME) = UPPER(patients.ETHNICITY) AND UPPER(ETHNICITY.DOMAIN_ID) = 'ETHNICITY' AND UPPER(ETHNICITY.concept_class_id) = 'ETHNICITY' AND UPPER(ETHNICITY.vocabulary_id) = 'ETHNICITY'
 
 -- COMMAND ----------
 
