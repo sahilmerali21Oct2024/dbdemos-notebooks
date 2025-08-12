@@ -27,7 +27,7 @@ SELECT
 -- , NULL AS RACE_SOURCE_CONCEPT_ID
 , ETHNICITY AS ETHNICITY_SOURCE_VALUE
 -- , NULL AS ETHNICITY_SOURCE_CONCEPT_ID
-FROM hls_omop.cdm_542.patients
+FROM hls_omop.synthea.patients
 LEFT JOIN hls_omop.vocab_542.concept RACE ON UPPER(RACE.CONCEPT_NAME) = UPPER(patients.RACE) AND UPPER(RACE.DOMAIN_ID) = 'RACE' AND UPPER(RACE.concept_class_id) = 'RACE' AND UPPER(RACE.vocabulary_id) = 'RACE'
 -- LEFT JOIN hls_omop.vocab_542.concept ETHNICITY ON UPPER(ETHNICITY.CONCEPT_NAME) = UPPER(patients.ETHNICITY) AND UPPER(ETHNICITY.DOMAIN_ID) = 'ETHNICITY' AND UPPER(ETHNICITY.concept_class_id) = 'ETHNICITY' AND UPPER(ETHNICITY.vocabulary_id) = 'ETHNICITY'
 
@@ -124,7 +124,7 @@ WITH CTE_END_DATES AS (
                 stop
             ) AS START_ORDINAL
           FROM
-            encounters
+            synthea.encounters
           WHERE
             encounterclass = 'inpatient'
           UNION ALL
@@ -135,7 +135,7 @@ WITH CTE_END_DATES AS (
             1 AS EVENT_TYPE,
             NULL
           FROM
-            encounters
+            synthea.encounters
           WHERE
             encounterclass = 'inpatient'
         ) RAWDATA
@@ -151,7 +151,7 @@ CTE_VISIT_ENDS AS (
     V.start AS VISIT_START_DATE,
     MIN(E.END_DATE) AS VISIT_END_DATE
   FROM
-    encounters V
+    synthea.encounters V
     INNER JOIN CTE_END_DATES E ON V.patient = E.patient
     AND V.encounterclass = E.encounterclass
     AND E.END_DATE >= V.start
@@ -317,7 +317,7 @@ FROM
           CL1.start AS VISIT_START_DATE,
           CL2.stop AS VISIT_END_DATE
         FROM
-          encounters CL1
+          synthea.encounters CL1
           INNER JOIN encounters CL2 ON CL1.patient = CL2.patient
           AND CL1.start = CL2.start
           AND CL1.encounterclass = CL2.encounterclass
@@ -383,7 +383,7 @@ WITH CTE_VISITS_DISTINCT AS (
     start AS VISIT_START_DATE,
     stop AS VISIT_END_DATE
   FROM
-    encounters
+    synthea.encounters
   WHERE
     encounterclass in ('ambulatory', 'wellness', 'outpatient')
   GROUP BY
@@ -528,7 +528,7 @@ SELECT
     ELSE NULL
   END AS VISIT_OCCURRENCE_ID_NEW
 FROM
-  ENCOUNTERS E
+  synthea.ENCOUNTERS E
   INNER JOIN ALL_VISITS AV ON E.patient = AV.patient
   AND E.start >= AV.VISIT_START_DATE
   AND E.start <= AV.VISIT_END_DATE;
@@ -830,7 +830,7 @@ select
   c.code AS CONDITION_SOURCE_VALUE,
   coalesce(srctosrcvm.source_concept_id,0) AS CONDITION_SOURCE_CONCEPT_ID,
   0 AS CONDITION_STATUS_SOURCE_VALUE
-from conditions c
+from synthea.conditions c
 inner join hls_omop.vocab_542.source_to_standard_vocab_map srctostdvm
 on srctostdvm.source_code             = c.code
  and srctostdvm.target_domain_id        = 'Condition'
@@ -933,7 +933,7 @@ select
   coalesce(srctosrcvm.source_concept_id,0) AS measurement_source_concept_id,
   0 as unit_source_value,
   0 as value_source_value
-from procedures pr
+from synthea.procedures pr
 inner join hls_omop.vocab_542.source_to_standard_vocab_map  srctostdvm
   on srctostdvm.source_code             = pr.code
  and srctostdvm.target_domain_id        = 'Measurement'
@@ -1122,7 +1122,7 @@ SELECT
   pr.code AS PROCEDURE_SOURCE_VALUE,
   coalesce(srctosrcvm.source_concept_id,0) AS PROCEDURE_SOURCE_CONCEPT_ID,
   0 AS MODIFIER_SOURCE_VALUE
-from procedures pr
+from synthea.procedures pr
 inner join hls_omop.vocab_542.source_to_standard_vocab_map  srctostdvm
   on srctostdvm.source_code             = pr.code
  and srctostdvm.target_domain_id        = 'Procedure'
@@ -1225,7 +1225,7 @@ select
   coalesce(srctosrcvm.source_concept_id,0) AS drug_source_concept_id,
   0 as  route_source_value,
   0 as  dose_unit_source_value
-from conditions c
+from synthea.conditions c
  join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
 on srctostdvm.source_code             = c.code
  and srctostdvm.target_domain_id        = 'Drug'
@@ -1263,7 +1263,7 @@ select
   coalesce(srctosrcvm.source_concept_id,0),
   0,
   0 
-from medications m
+from synthea.medications m
   join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
 on srctostdvm.source_code             = m.code
  and srctostdvm.target_domain_id        = 'Drug'
@@ -1301,7 +1301,7 @@ select
   coalesce(srctosrcvm.source_concept_id,0),
   0,
   0
-from immunizations i
+from synthea.immunizations i
   left join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
 on srctostdvm.source_code             = i.code
  and srctostdvm.target_domain_id        = 'Drug'
