@@ -24,6 +24,9 @@ CREATE OR REFRESH STREAMING TABLE organizations
 CREATE OR REFRESH STREAMING TABLE providers
   AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/providers/*.csv", FORMAT => "csv");
 
+CREATE OR REFRESH STREAMING TABLE procedures
+  AS SELECT * FROM STREAM READ_FILES("/Volumes/hls_omop/cdm_542/landing/procedures/*.csv", FORMAT => "csv");
+
 -- COMMAND ----------
 
 -- MAGIC %md-sandbox
