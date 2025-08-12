@@ -50,13 +50,13 @@ with targetConditionSet AS
   SELECT person_id, min(condition_start_date) as condition_start_date
   FROM condition_occurrence
   WHERE condition_concept_id IN
-    ( SELECT descendant_concept_id FROM concept_ancestor WHERE ancestor_concept_id IN ({target_condition_concept_id}) )
+    ( SELECT descendant_concept_id FROM hls_omop.vocab_542.concept_ancestor WHERE ancestor_concept_id IN ({target_condition_concept_id}) )
   GROUP BY person_id
 ),
 targetDrugExposure as (
 SELECT person_id, min(drug_exposure_start_date) as drug_exposure_start_date
   FROM drug_exposure
-  WHERE drug_concept_id IN (SELECT descendant_concept_id FROM concept_ancestor WHERE ancestor_concept_id IN ({target_drug_concept_id}))
+  WHERE drug_concept_id IN (SELECT descendant_concept_id FROM hls_omop.vocab_542.concept_ancestor WHERE ancestor_concept_id IN ({target_drug_concept_id}))
   GROUP BY person_id
 )
 
@@ -133,7 +133,7 @@ createOrReplaceTempView(union(target_cohort_df,outcome_cohort_df),'CHF_cohort')
 # MAGIC       AND observation_period_end_date > cohort_start_date
 # MAGIC   INNER JOIN person
 # MAGIC     ON subject_id = person.person_id
-# MAGIC   INNER JOIN concept
+# MAGIC   INNER JOIN hls_omop.vocab_542.concept
 # MAGIC     ON gender_concept_id = concept_id
 # MAGIC   WHERE cohort_definition_id = 1 -- Target
 # MAGIC )
@@ -191,7 +191,7 @@ target_drug_concept_id=1719286       #10 ML Furosemide 10 MG/ML Injection
 "
 
 sql(as.character(glue("
-  INSERT INTO OMOP531.cohort_definition
+  INSERT INTO hls_omop.cdm_542.cohort_definition
   select
   1, 'CHF_cohort', '{targetCohort_Description}', 1, '{target_cohort_query}',1, current_date()
 ")))
@@ -199,7 +199,7 @@ sql(as.character(glue("
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC INSERT INTO OMOP531.cohort
+# MAGIC INSERT INTO hls_omop.cdm_542.cohort
 # MAGIC   Select cohort_definition_id, 
 # MAGIC          subject_id, 
 # MAGIC          cohort_start_date, 
