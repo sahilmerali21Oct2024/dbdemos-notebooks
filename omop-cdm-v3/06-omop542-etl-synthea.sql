@@ -660,10 +660,33 @@ WHERE RN=1;
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ### observation_period
+-- New code
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW observation_period AS
+SELECT
+  ROW_NUMBER() OVER(
+    ORDER BY
+      person_id
+  ) AS OBSERVATION_PERIOD_ID,
+  person_id,
+  start_date AS OBSERVATION_PERIOD_START_DATE,
+  end_date AS OBSERVATION_PERIOD_END_DATE,
+  44814724 AS PERIOD_TYPE_CONCEPT_ID
+FROM
+  (
+    SELECT
+      p.person_id,
+      MIN(e.start) AS start_date,
+      MAX(e.stop) AS end_date
+    FROM
+      person p
+      INNER JOIN encounters e ON p.person_source_value = e.patient
+    GROUP BY
+      p.person_id
+  ) tmp;
+
+
+-- Old code:
 
 -- INSERT
 --   OVERWRITE observation_period
@@ -692,19 +715,52 @@ WHERE RN=1;
 
 -- COMMAND ----------
 
--- SELECT
---   *
--- FROM
---   observation_period
--- LIMIT
---   100;
+-- New code
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW visit_occurrence AS
+select
+  av.visit_occurrence_id AS VISIT_OCCURRENCE_ID,
+  p.person_id, 
+  case
+    lower(av.encounterclass)
+    when 'ambulatory' then 9202
+    when 'emergency' then 9203
+    when 'inpatient' then 9201
+    when 'wellness' then 9202
+    when 'urgentcare' then 9203
+    when 'outpatient' then 9202
+    else 0
+  end AS VISIT_CONCEPT_ID, 
+  av.visit_start_date,
+  av.visit_start_date AS VISIT_START_DATETIME,
+  av.visit_end_date,
+  av.visit_end_date AS VISIT_END_DATETIME,
+  44818517 AS PROVIDER_ID,
+  0 AS CARE_SITE_ID,
+  0 AS VISIT_SOURCE_VALUE,
+  av.encounter_id AS VISIT_SOURCE_CONCEPT_ID,
+  0 AS ADMITTED_FROM_CONCEPT_ID,
+  0 AS ADMITTED_FROM_SOURCE_VALUE, 
+  0 AS DISCHARGED_TO_CONCEPT_ID,
+  0 AS DISCHARGED_TO_SOURCE_VALUE,
+  lag(visit_occurrence_id) over(
+    partition by p.person_id
+    order by
+      av.visit_start_date
+  ) AS PRECEDING_VISIT_OCCURRENCE_ID
+from
+  all_visits av
+  join person p on av.patient = p.person_source_value
+where
+  av.visit_occurrence_id in (
+    select
+      distinct visit_occurrence_id_new
+    from
+      final_visit_ids
+  );
 
--- MAGIC %md
--- MAGIC ### visit_occurrence
 
--- COMMAND ----------
+-- Old code: 
 
 -- INSERT
 --   OVERWRITE visit_occurrence
@@ -751,21 +807,47 @@ WHERE RN=1;
 --   );
 
 
--- COMMAND ----------
-
--- SELECT
---   *
--- FROM
---   visit_occurrence
--- LIMIT
---   100;
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ### condition_occurrence
+-- New code:
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW condition_occurrence AS
+select
+  row_number()over(order by p.person_id) AS CONDITION_OCCURRENCE_ID,
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) AS CONDITION_CONCEPT_ID,
+  c.start AS CONDITION_START_DATE,
+  c.start AS CONDITION_START_DATETIME,
+  c.stop AS CONDITION_END_DATE,
+  c.stop AS CONDITION_END_DATETIME,
+  32020 AS CONDITION_TYPE_CONCEPT_ID,
+  0 AS CONDITION_STATUS_CONCEPT_ID,
+  0 AS STOP_REASON,
+  0 AS PROVIDER_ID,
+  fv.visit_occurrence_id_new AS VISIT_OCCURRENCE_ID,
+  0 AS VISIT_DETAIL_ID,
+  c.code AS CONDITION_SOURCE_VALUE,
+  coalesce(srctosrcvm.source_concept_id,0) AS CONDITION_SOURCE_CONCEPT_ID,
+  0 AS CONDITION_STATUS_SOURCE_VALUE
+from conditions c
+inner join hls_omop.vocab_542.source_to_standard_vocab_map srctostdvm
+on srctostdvm.source_code             = c.code
+ and srctostdvm.target_domain_id        = 'Condition'
+ and srctostdvm.source_vocabulary_id    = 'SNOMED'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = c.code
+ and srctosrcvm.source_vocabulary_id    = 'SNOMED'
+left join final_visit_ids fv
+  on fv.encounter_id = c.encounter
+inner join person p
+  on c.patient = p.person_source_value;
+
+
+
+-- Old code:
 
 -- CREATE MATERIALIZED VIEW condition_occurrence AS
 -- select
@@ -801,12 +883,119 @@ WHERE RN=1;
 --   on c.patient = p.person_source_value;
 
 
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ### measurement
 
 -- COMMAND ----------
+
+-- New code:
+
+CREATE MATERIALIZED VIEW measurement AS
+SELECT row_number()over(order by person_id) AS MEASUREMENT_ID,
+person_id,
+measurement_concept_id,
+measurement_date,
+measurement_datetime,
+measurement_time,
+measurement_type_concept_id,
+operator_concept_id,
+value_as_number,
+value_as_concept_id,
+unit_concept_id,
+range_low,
+range_high,
+provider_id,
+visit_occurrence_id,
+visit_detail_id,
+measurement_source_value,
+measurement_source_concept_id,
+unit_source_value,
+0 AS UNIT_SOURCE_CONCEPT_ID, -- New column in version 5.4.2
+value_source_value,
+0 AS MEASUREMENT_EVENT_ID, -- New column in version 5.4.2
+0 AS MEAS_EVENT_FIELD_CONCEPT_ID -- New column in version 5.4.2
+from (
+select
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) AS measurement_concept_id,
+  pr.start AS measurement_date,
+  pr.start AS measurement_datetime,
+  pr.start AS measurement_time,
+  5001 AS measurement_type_concept_id,
+  0 as operator_concept_id,
+  0 as value_as_number,
+  0 as value_as_concept_id,
+  0 as unit_concept_id,
+  0 as range_low,
+  0 as range_high,
+  0 as provider_id,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0 as visit_detail_id,
+  pr.code AS measurement_source_value,
+  coalesce(srctosrcvm.source_concept_id,0) AS measurement_source_concept_id,
+  0 as unit_source_value,
+  0 as value_source_value
+from procedures pr
+inner join hls_omop.vocab_542.source_to_standard_vocab_map  srctostdvm
+  on srctostdvm.source_code             = pr.code
+ and srctostdvm.target_domain_id        = 'Measurement'
+ and srctostdvm.source_vocabulary_id    = 'SNOMED'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL or srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = pr.code
+ and srctosrcvm.source_vocabulary_id    = 'SNOMED'
+left join final_visit_ids fv
+  on fv.encounter_id = pr.encounter
+join person p
+  on p.person_source_value              = pr.patient
+union all
+select
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) AS target_concept_id,
+  o.observation_date,
+  o.observation_date,
+  o.observation_date,
+  5001,
+  0,
+  nanvl(cast(o.observation_source_value as float), null) as value_as_number,
+  coalesce(srcmap2.target_concept_id,0) AS value_as_concept_id,
+  coalesce(srcmap1.target_concept_id,0) AS unit_concept_id,
+  0 ,
+  0 ,
+  0 as provider_id,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0 as visit_detail_id,
+  o.observation_source_value AS measurement_source_value,
+  coalesce(srctosrcvm.source_concept_id,0) AS measurement_source_concept_id,
+  o.unit_source_value,
+  o.value_source_value
+from observation o
+inner join hls_omop.vocab_542.source_to_standard_vocab_map  srctostdvm
+  on srctostdvm.source_code             = o.observation_concept_id -- TO DO: verify this 
+ and srctostdvm.target_domain_id        = 'Measurement'
+ and srctostdvm.source_vocabulary_id    = 'LOINC'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_standard_vocab_map  srcmap1
+  on srcmap1.source_code                = o.unit_source_value -- TO DO: verify this
+ and srcmap1.target_vocabulary_id       = 'UCUM'
+ and srcmap1.target_standard_concept    = 'S'
+ and (srcmap1.target_invalid_reason IS NULL OR srcmap1.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_standard_vocab_map  srcmap2
+  on srcmap2.source_code                = o.unit_source_value -- TO DO: verify this
+ and srcmap2.target_domain_id           = 'Meas value'
+ and srcmap2.target_standard_concept    = 'S'
+ and (srcmap2.target_invalid_reason IS NULL OR srcmap2.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = o.OBSERVATION_CONCEPT_ID -- TO DO: verify this
+ and srctosrcvm.source_vocabulary_id    = 'LOINC'
+left join final_visit_ids fv
+  on fv.encounter_id                    = o.OBSERVATION_ID -- TO DO: verify this
+inner join person p
+  on p.person_source_value              = o.person_id
+  ) tmp;
+
+
+-- Old code:
 
 -- INSERT OVERWRITE measurement
 -- SELECT row_number()over(order by person_id) AS measurement_id,
