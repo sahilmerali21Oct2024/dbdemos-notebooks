@@ -1,6 +1,6 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC Matt Cutini on 20250811: The code that's in this notebook should be combined with the code that's in notebook '04-omop542-cdm-setup' and the combined result should be turned into a Lakeflow Declarative Pipeline. 
+-- MAGIC Matt Cutini on 20250812: The code that's in this notebook has been combined with the code that's in notebook '04-omop542-cdm-setup' and the combined result has been turned into a Lakeflow Declarative Pipeline. 
 
 -- COMMAND ----------
 
@@ -739,10 +739,10 @@ select
   0 AS CARE_SITE_ID,
   0 AS VISIT_SOURCE_VALUE,
   av.encounter_id AS VISIT_SOURCE_CONCEPT_ID,
-  0 AS ADMITTED_FROM_CONCEPT_ID,
-  0 AS ADMITTED_FROM_SOURCE_VALUE, 
-  0 AS DISCHARGED_TO_CONCEPT_ID,
-  0 AS DISCHARGED_TO_SOURCE_VALUE,
+  0 AS ADMITTED_FROM_CONCEPT_ID, -- Field name changed in version 5.4.2
+  0 AS ADMITTED_FROM_SOURCE_VALUE, -- Field name changed in version 5.4.2
+  0 AS DISCHARGED_TO_CONCEPT_ID, -- Field name changed in version 5.4.2
+  0 AS DISCHARGED_TO_SOURCE_VALUE, -- Field name changed in version 5.4.2
   lag(visit_occurrence_id) over(
     partition by p.person_id
     order by
@@ -1102,10 +1102,43 @@ inner join person p
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ### procedure_occurrence
+-- New code:
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW procedure_occurrence AS
+SELECT
+  row_number()over(order by p.person_id) AS PROCEDURE_OCCURRENCE_ID,
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id, 0) as PROCEDURE_CONCEPT_ID,
+  pr.start AS PROCEDURE_DATE, 
+  pr.start AS PROCEDURE_DATETIME,
+  PR.STOP AS PROCEDURE_END_DATE, -- New column in version 5.4.2
+  PR.STOP AS PROCEDURE_END_DATETIME, -- New column in version 5.4.2
+  38000275 AS PROCEDURE_TYPE_CONCEPT_ID,
+  0 AS MODIFIER_CONCEPT_ID,
+  0 AS QUANTITY,
+  0 AS PROVIDER_ID,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0 AS VISIT_DETAIL_ID,
+  pr.code AS PROCEDURE_SOURCE_VALUE,
+  coalesce(srctosrcvm.source_concept_id,0) AS PROCEDURE_SOURCE_CONCEPT_ID,
+  0 AS MODIFIER_SOURCE_VALUE
+from procedures pr
+inner join hls_omop.vocab_542.source_to_standard_vocab_map  srctostdvm
+  on srctostdvm.source_code             = pr.code
+ and srctostdvm.target_domain_id        = 'Procedure'
+ and srctostdvm.source_vocabulary_id    = 'SNOMED'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = pr.code
+ and srctosrcvm.source_vocabulary_id    = 'SNOMED'
+left join final_visit_ids fv
+  on fv.encounter_id = pr.encounter
+inner join person p
+  on p.person_source_value    = pr.patient;
+
+
+-- Old Code:
 
 -- INSERT OVERWRITE procedure_occurrence
 -- SELECT
@@ -1139,12 +1172,153 @@ inner join person p
 --   on p.person_source_value    = pr.patient;
 
 
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ### drug_exposure
 
 -- COMMAND ----------
+
+-- New code:
+
+CREATE MATERIALIZED VIEW drug_exposure AS
+SELECT row_number()over(order by person_id) AS drug_exposure_id,
+person_id,
+drug_concept_id,
+drug_exposure_start_date,
+drug_exposure_start_datetime,
+drug_exposure_end_date,
+drug_exposure_end_datetime,
+verbatim_end_date,
+drug_type_concept_id,
+stop_reason,
+refills,
+quantity,
+days_supply,
+sig,
+route_concept_id,
+lot_number,
+provider_id,
+visit_occurrence_id,
+visit_detail_id,
+drug_source_value,
+drug_source_concept_id,
+route_source_value,
+dose_unit_source_value
+  from (
+select
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) as drug_concept_id,
+  c.start AS drug_exposure_start_date,
+  c.start AS drug_exposure_start_datetime,
+  coalesce(c.stop,c.start) AS drug_exposure_end_date,
+  coalesce(c.stop,c.start) AS drug_exposure_end_datetime,
+  c.stop AS verbatim_end_date,
+  581452 as drug_type_concept_id,
+  0 as  stop_reason,
+  0 as refills,
+  0 as quantity,
+  coalesce(datediff(c.stop,c.start),0) as days_supply,
+  0 as  sig,
+  0 as route_concept_id,
+  0 as lot_number,
+  0 as provider_id,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0 as visit_detail_id,
+  c.code AS drug_source_value,
+  coalesce(srctosrcvm.source_concept_id,0) AS drug_source_concept_id,
+  0 as  route_source_value,
+  0 as  dose_unit_source_value
+from conditions c
+ join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
+on srctostdvm.source_code             = c.code
+ and srctostdvm.target_domain_id        = 'Drug'
+ and srctostdvm.source_vocabulary_id    = 'RxNorm'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = c.code
+ and srctosrcvm.source_vocabulary_id    = 'RxNorm'
+left join final_visit_ids fv
+  on fv.encounter_id = c.encounter
+join person p
+  on p.person_source_value              = c.patient
+union all
+select
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) as drug_concept_id,
+  m.start,
+  m.start,
+  coalesce(m.stop,m.start),
+  coalesce(m.stop,m.start),
+  m.stop,
+  38000177,
+  0,
+  0,
+  0,
+  coalesce(datediff(m.stop,m.start),0),
+  0,
+  0,
+  0,
+  0,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0,
+  m.code,
+  coalesce(srctosrcvm.source_concept_id,0),
+  0,
+  0 
+from medications m
+  join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
+on srctostdvm.source_code             = m.code
+ and srctostdvm.target_domain_id        = 'Drug'
+ and srctostdvm.source_vocabulary_id    = 'RxNorm'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS  NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = m.code
+ and srctosrcvm.source_vocabulary_id    = 'RxNorm'
+left join final_visit_ids fv
+  on fv.encounter_id = m.encounter
+join person p
+  on p.person_source_value              = m.patient
+union all
+select
+  p.person_id,
+  coalesce(srctostdvm.target_concept_id,0) as drug_concept_id,
+  i.date,
+  i.date,
+  i.date,
+  i.date,
+  i.date,
+  581452,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  fv.visit_occurrence_id_new AS visit_occurrence_id,
+  0,
+  i.code,
+  coalesce(srctosrcvm.source_concept_id,0),
+  0,
+  0
+from immunizations i
+  left join hls_omop.vocab_542.source_to_standard_vocab_map   srctostdvm
+on srctostdvm.source_code             = i.code
+ and srctostdvm.target_domain_id        = 'Drug'
+ and srctostdvm.source_vocabulary_id    = 'CVX'
+ and srctostdvm.target_standard_concept = 'S'
+ and (srctostdvm.target_invalid_reason IS NULL OR srctostdvm.target_invalid_reason = '')
+left join hls_omop.vocab_542.source_to_source_vocab_map srctosrcvm
+  on srctosrcvm.source_code             = i.code
+ and srctosrcvm.source_vocabulary_id    = 'CVX'
+left join final_visit_ids fv
+  on fv.encounter_id = i.encounter
+join person p
+  on p.person_source_value = i.patient
+  ) tmp;
+
+
+-- Old code:
 
 -- INSERT OVERWRITE drug_exposure
 -- SELECT row_number()over(order by person_id) AS drug_exposure_id,
@@ -1288,10 +1462,93 @@ inner join person p
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ### condition_era
+-- New code:
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW condition_era AS 
+WITH cteConditionTarget (condition_occurrence_id, person_id, condition_concept_id, condition_start_datetime, condition_end_datetime) AS
+(
+	SELECT
+		co.condition_occurrence_id
+		, co.person_id
+		, co.condition_concept_id
+		, co.condition_start_datetime
+		, COALESCE(co.condition_end_datetime, date_add(condition_start_datetime,1)) AS condition_end_datetime
+	FROM condition_occurrence co
+	/* Depending on the needs of your data, you can put more filters on to your code. We assign 0 to our unmapped condition_concept_id's,
+	 * and since we don't want different conditions put in the same era, we put in the filter below.
+ 	 */
+	---WHERE condition_concept_id != 0
+),
+--------------------------------------------------------------------------------------------------------------
+cteEndDates (person_id, condition_concept_id, end_date) AS -- the magic
+(
+	SELECT
+		person_id
+		, condition_concept_id
+		, date_add(event_date,-30) AS end_date -- unpad the end date
+	FROM
+	(
+		SELECT
+			person_id
+			, condition_concept_id
+			, event_date
+			, event_type
+			, MAX(start_ordinal) OVER (PARTITION BY person_id, condition_concept_id ORDER BY event_date, event_type ROWS UNBOUNDED PRECEDING) AS start_ordinal -- this pulls the current START down from the prior rows so that the NULLs from the END DATES will contain a value we can compare with
+			, ROW_NUMBER() OVER (PARTITION BY person_id, condition_concept_id ORDER BY event_date, event_type) AS overall_ord -- this re-numbers the inner UNION so all rows are numbered ordered by the event date
+		FROM
+		(
+			-- select the start dates, assigning a row number to each
+			SELECT
+				person_id
+				, condition_concept_id
+				, condition_start_datetime AS event_date
+				, -1 AS event_type
+				, ROW_NUMBER() OVER (PARTITION BY person_id, condition_concept_id ORDER BY condition_start_datetime) AS start_ordinal
+			FROM cteConditionTarget
+			UNION ALL
+			-- pad the end dates by 30 to allow a grace period for overlapping ranges.
+			SELECT
+				person_id
+			    , condition_concept_id
+				, date_add(condition_end_datetime,30)
+				, 1 AS event_type
+				, NULL
+			FROM cteConditionTarget
+		) RAWDATA
+	) e
+	WHERE (2 * e.start_ordinal) - e.overall_ord = 0
+),
+--------------------------------------------------------------------------------------------------------------
+cteConditionEnds (person_id, condition_concept_id, condition_start_datetime, era_end_datetime) AS
+(
+SELECT
+        c.person_id
+	, c.condition_concept_id
+	, c.condition_start_datetime
+	, MIN(e.end_date) AS era_end_datetime
+FROM cteConditionTarget c
+INNER JOIN cteEndDates e ON c.person_id = e.person_id AND c.condition_concept_id = e.condition_concept_id AND e.end_date >= c.condition_start_datetime
+GROUP BY
+        c.condition_occurrence_id
+	, c.person_id
+	, c.condition_concept_id
+	, c.condition_start_datetime
+)
+--------------------------------------------------------------------------------------------------------------
+SELECT
+    row_number()over(order by person_id) AS condition_era_id
+	, person_id
+	, condition_concept_id
+	, MIN(condition_start_datetime) AS condition_era_start_date
+	, era_end_datetime AS condition_era_end_date
+	, COUNT(*) AS condition_occurrence_count
+FROM cteConditionEnds
+GROUP BY person_id, condition_concept_id, era_end_datetime
+;
+
+
+
+-- Old code:
 
 -- INSERT OVERWRITE condition_era (
 -- WITH cteConditionTarget (condition_occurrence_id, person_id, condition_concept_id, condition_start_datetime, condition_end_datetime) AS
@@ -1377,10 +1634,154 @@ inner join person p
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC ### drug_era
+-- New code:
 
--- COMMAND ----------
+CREATE MATERIALIZED VIEW drug_era AS 
+WITH
+ctePreDrugTarget(drug_exposure_id, person_id, ingredient_concept_id, drug_exposure_start_datetime, days_supply, drug_exposure_end_datetime) AS
+(-- Normalize DRUG_EXPOSURE_END_DATE to either the existing drug exposure end date, or add days supply, or add 1 day to the start date
+	SELECT
+		d.drug_exposure_id
+		, d.person_id
+		, c.concept_id AS ingredient_concept_id
+		, d.drug_exposure_start_datetime AS drug_exposure_start_datetime
+		, d.days_supply AS days_supply
+		, COALESCE(
+			---NULLIF returns NULL if both values are the same, otherwise it returns the first parameter
+			ifnull(drug_exposure_end_datetime, NULL),
+			---If drug_exposure_end_date != NULL, return drug_exposure_end_date, otherwise go to next case
+			ifnull(date_add(drug_exposure_start_datetime,cast(days_supply as int)), drug_exposure_start_datetime),
+			---If days_supply != NULL or 0, return drug_exposure_start_date + days_supply, otherwise go to next case
+			date_add(drug_exposure_start_datetime,1)
+			---Add 1 day to the drug_exposure_start_date since there is no end_date or INTERVAL for the days_supply
+		) AS drug_exposure_end_datetime
+	FROM drug_exposure d
+		INNER JOIN hls_omop.vocab_542.concept_ancestor ca ON ca.descendant_concept_id = d.drug_concept_id
+		INNER JOIN hls_omop.vocab_542.concept c ON ca.ancestor_concept_id = c.concept_id
+		WHERE c.vocabulary_id = 'RxNorm' ---8 selects RxNorm from the vocabulary_id
+		AND c.concept_class_id = 'Ingredient'
+		AND d.drug_concept_id != 0 ---Our unmapped drug_concept_id's are set to 0, so we don't want different drugs wrapped up in the same era
+		AND coalesce(d.days_supply,0) >= 0 ---We have cases where days_supply is negative, and this can set the end_date before the start_date, which we don't want. So we're just looking over those rows. This is a data-quality issue.
+)
+
+, cteSubExposureEndDates (person_id, ingredient_concept_id, end_datetime) AS --- A preliminary sorting that groups all of the overlapping exposures into one exposure so that we don't double-count non-gap-days
+(
+	SELECT person_id, ingredient_concept_id, event_date AS end_datetime
+	FROM
+	(
+		SELECT person_id, ingredient_concept_id, event_date, event_type,
+		MAX(start_ordinal) OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY event_date, event_type ROWS unbounded preceding) AS start_ordinal,
+		-- this pulls the current START down from the prior rows so that the NULLs
+		-- from the END DATES will contain a value we can compare with
+		ROW_NUMBER() OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY event_date, event_type) AS overall_ord
+			-- this re-numbers the inner UNION so all rows are numbered ordered by the event date
+		FROM (
+			-- select the start dates, assigning a row number to each
+			SELECT person_id, ingredient_concept_id, drug_exposure_start_datetime AS event_date,
+			-1 AS event_type,
+			ROW_NUMBER() OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY drug_exposure_start_datetime) AS start_ordinal
+			FROM ctePreDrugTarget
+			UNION ALL
+			SELECT person_id, ingredient_concept_id, drug_exposure_end_datetime, 1 AS event_type, NULL
+			FROM ctePreDrugTarget
+		) RAWDATA
+	) e
+	WHERE (2 * e.start_ordinal) - e.overall_ord = 0
+)
+
+, cteDrugExposureEnds (person_id, drug_concept_id, drug_exposure_start_datetime, drug_sub_exposure_end_datetime) AS
+(
+SELECT
+	dt.person_id
+	, dt.ingredient_concept_id
+	, dt.drug_exposure_start_datetime
+	, MIN(e.end_datetime) AS drug_sub_exposure_end_datetime
+FROM ctePreDrugTarget dt
+INNER JOIN cteSubExposureEndDates e ON dt.person_id = e.person_id AND dt.ingredient_concept_id = e.ingredient_concept_id AND e.end_datetime >= dt.drug_exposure_start_datetime
+GROUP BY
+      	dt.drug_exposure_id
+      	, dt.person_id
+	, dt.ingredient_concept_id
+	, dt.drug_exposure_start_datetime
+)
+--------------------------------------------------------------------------------------------------------------
+, cteSubExposures(row_number, person_id, drug_concept_id, drug_sub_exposure_start_datetime, drug_sub_exposure_end_datetime, drug_exposure_count) AS
+(
+	SELECT ROW_NUMBER() OVER (PARTITION BY person_id, drug_concept_id, drug_sub_exposure_end_datetime ORDER BY person_id)
+		, person_id, drug_concept_id, MIN(drug_exposure_start_datetime) AS drug_sub_exposure_start_datetime, drug_sub_exposure_end_datetime, COUNT(*) AS drug_exposure_count
+	FROM cteDrugExposureEnds
+	GROUP BY person_id, drug_concept_id, drug_sub_exposure_end_datetime
+	--ORDER BY person_id, drug_concept_id
+)
+--------------------------------------------------------------------------------------------------------------
+/*Everything above grouped exposures into sub_exposures if there was overlap between exposures.
+ *So there was no persistence window. Now we can add the persistence window to calculate eras.
+ */
+--------------------------------------------------------------------------------------------------------------
+, cteFinalTarget(row_number, person_id, ingredient_concept_id, drug_sub_exposure_start_datetime, drug_sub_exposure_end_datetime, drug_exposure_count, days_exposed) AS
+(
+	SELECT row_number, person_id, drug_concept_id, drug_sub_exposure_start_datetime, drug_sub_exposure_end_datetime, drug_exposure_count
+		, datediff(drug_sub_exposure_end_datetime,drug_sub_exposure_start_datetime) AS days_exposed
+	FROM cteSubExposures
+)
+--------------------------------------------------------------------------------------------------------------
+, cteEndDates (person_id, ingredient_concept_id, end_datetime) AS -- the magic
+(
+	SELECT person_id, ingredient_concept_id, date_add(event_date,-30) AS end_datetime -- unpad the end date
+	FROM
+	(
+		SELECT person_id, ingredient_concept_id, event_date, event_type,
+		MAX(start_ordinal) OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY event_date, event_type ROWS UNBOUNDED PRECEDING) AS start_ordinal,
+		-- this pulls the current START down from the prior rows so that the NULLs
+		-- from the END DATES will contain a value we can compare with
+		ROW_NUMBER() OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY event_date, event_type) AS overall_ord
+			-- this re-numbers the inner UNION so all rows are numbered ordered by the event date
+		FROM (
+			-- select the start dates, assigning a row number to each
+			SELECT person_id, ingredient_concept_id, drug_sub_exposure_start_datetime AS event_date,
+			-1 AS event_type,
+			ROW_NUMBER() OVER (PARTITION BY person_id, ingredient_concept_id ORDER BY drug_sub_exposure_start_datetime) AS start_ordinal
+			FROM cteFinalTarget
+			UNION ALL
+			-- pad the end dates by 30 to allow a grace period for overlapping ranges.
+			SELECT person_id, ingredient_concept_id, date_add(drug_sub_exposure_end_datetime,30), 1 AS event_type, NULL
+			FROM cteFinalTarget
+		) RAWDATA
+	) e
+	WHERE (2 * e.start_ordinal) - e.overall_ord = 0
+
+)
+, cteDrugEraEnds (person_id, drug_concept_id, drug_sub_exposure_start_datetime, drug_era_end_datetime, drug_exposure_count, days_exposed) AS
+(
+SELECT
+	ft.person_id
+	, ft.ingredient_concept_id
+	, ft.drug_sub_exposure_start_datetime
+	, MIN(e.end_datetime) AS era_end_datetime
+	, drug_exposure_count
+	, days_exposed
+FROM cteFinalTarget ft
+JOIN cteEndDates e ON ft.person_id = e.person_id AND ft.ingredient_concept_id = e.ingredient_concept_id AND e.end_datetime >= ft.drug_sub_exposure_start_datetime
+GROUP BY
+      	ft.person_id
+	, ft.ingredient_concept_id
+	, ft.drug_sub_exposure_start_datetime
+	, drug_exposure_count
+	, days_exposed
+)
+SELECT
+    row_number()over(order by person_id) drug_era_id
+	, person_id
+	, drug_concept_id
+	, MIN(drug_sub_exposure_start_datetime) AS drug_era_start_date
+	, drug_era_end_datetime AS drug_era_end_date
+	, SUM(drug_exposure_count) AS drug_exposure_count
+	, datediff(date_add(drug_era_end_datetime,cast(-(datediff(drug_era_end_datetime,MIN(drug_sub_exposure_start_datetime))-SUM(days_exposed)) as int)),'1970-01-01') as gap_days
+FROM cteDrugEraEnds dee
+GROUP BY person_id, drug_concept_id, drug_era_end_datetime
+
+
+-- Old code: 
 
 -- INSERT OVERWRITE drug_era (
 -- WITH
@@ -1528,12 +1929,29 @@ inner join person p
 -- );
 
 
--- COMMAND ----------
-
--- MAGIC %md
--- MAGIC ### cdm_source
 
 -- COMMAND ----------
+
+-- New code:
+
+CREATE MATERIALIZED VIEW cdm_source AS 
+SELECT
+'Synthea synthetic health database' AS CDM_SOURCE_NAME,
+'Synthea' AS CDM_SOURCE_ABBREVIATION,
+'Databricks HLS' AS CDM_HOLDER,
+'SyntheaTM is a Synthetic Patient Population Simulator. The goal is to output synthetic, realistic (but not real), patient data and associated health records in a variety of formats.' AS SOURCE_DESCRIPTION,
+'https://synthetichealth.github.io/synthea/' AS SOURCE_DOCUMENTATION_REFERENCE,
+'https://github.com/databricks/hls-solution-accelerators/' AS CDM_ETL_REFERENCE,
+current_date() AS SOURCE_RELEASE_DATE, -- NB: Set this value to the day the source data was pulled
+current_date() AS CDM_RELEASE_DATE, 
+'v5.3.1' AS CDM_VERSION,
+0 AS CDM_VERSION_CONCEPT_ID, -- NEW field in version 5.4.2
+vocabulary_version 
+from hls_omop.vocab_542.vocabulary 
+where vocabulary_id = 'None';
+
+
+-- Old code:
 
 -- INSERT OVERWRITE cdm_source 
 -- SELECT
