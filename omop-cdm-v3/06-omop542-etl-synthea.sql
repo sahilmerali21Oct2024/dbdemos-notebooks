@@ -1970,6 +1970,48 @@ where vocabulary_id = 'None';
 
 -- COMMAND ----------
 
+CREATE MATERIALIZED VIEW NOTE AS
+SELECT
+  NOTE_ID,
+  PATIENT_ID AS PERSON_ID,
+--   NOTE_DATE DATE,
+--   NOTE_DATETIME TIMESTAMP,
+--   NOTE_TYPE_CONCEPT_ID LONG,
+--   NOTE_CLASS_CONCEPT_ID LONG,
+--   NOTE_TITLE STRING,
+  NOTE_TEXT
+--   ENCODING_CONCEPT_ID LONG,
+--   LANGUAGE_CONCEPT_ID LONG,
+--   PROVIDER_ID LONG,
+--   VISIT_OCCURRENCE_ID LONG,
+--   VISIT_DETAIL_ID LONG,
+--   NOTE_SOURCE_VALUE STRING,
+--   NOTE_EVENT_ID LONG, -- New column in version 5.4.2
+--   NOTE_EVENT_FIELD_CONCEPT_ID LONG -- New column in version 5.4.2
+FROM hls_omop.synthea.notes_mv
+
+-- COMMAND ----------
+
+CREATE MATERIALIZED VIEW NOTE_NLP AS
+SELECT
+--   NOTE_NLP_ID LONG,
+  NOTE_ID
+--   SECTION_CONCEPT_ID LONG,
+--   SNIPPET STRING,
+--   OFFSET STRING,
+--   LEXICAL_VARIANT STRING,
+--   NOTE_NLP_CONCEPT_ID LONG,
+--   NOTE_NLP_SOURCE_CONCEPT_ID LONG,
+--   NLP_SYSTEM STRING,
+--   NLP_DATE DATE,
+--   NLP_DATETIME TIMESTAMP,
+--   TERM_EXISTS STRING,
+--   TERM_TEMPORAL STRING,
+--   TERM_MODIFIERS STRING
+FROM note
+
+-- COMMAND ----------
+
 -- MAGIC %md
 -- MAGIC Copyright / License info of the notebook. Copyright Databricks, Inc. [2021].  The source in this notebook is provided subject to the [Databricks License](https://databricks.com/db-license-source).  All included or referenced third party libraries are subject to the licenses set forth below.
 -- MAGIC
