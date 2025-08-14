@@ -77,6 +77,24 @@ LEFT JOIN hls_omop.vocab_542.concept RACE ON UPPER(RACE.CONCEPT_NAME) = UPPER(pa
 -- where
 --   p.gender is not null;
 
+	
+-- COMMAND ----------
+
+-- New Code:
+CREATE OR REPLACE TABLE location AS
+SELECT
+  SHA2(CONCAT(address, '|', city, '|', state, '|', zip, '|', COALESCE(CAST(lat AS STRING), ''), '|', COALESCE(CAST(lon AS STRING), '')), 256) AS location_id,
+  address,
+  city,
+  state,
+  zip,
+  lat,
+  lon
+FROM (
+  SELECT DISTINCT address, city, state, zip, lat, lon FROM hls_omop.synthea.providers
+  UNION
+  SELECT DISTINCT address, city, state, zip, lat, lon FROM hls_omop.synthea.patients
+)
 
 -- COMMAND ----------
 
