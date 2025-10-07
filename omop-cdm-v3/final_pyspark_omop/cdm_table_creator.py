@@ -1,0 +1,502 @@
+#!/usr/bin/env python3
+"""
+CDM Table Creator - PySpark Implementation  
+==========================================
+
+This module contains the PySpark conversion of the R CreateCDMTables.r function.
+It creates all OMOP CDM tables using direct CREATE TABLE statements via spark.sql().
+"""
+
+from pyspark.sql import SparkSession
+from typing import Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+class CDMTableCreator:
+    """
+    PySpark implementation of R CreateCDMTables function
+    
+    This class converts the R function that uses CommonDataModel::executeDdl() to create
+    OMOP CDM tables. Instead of relying on external R packages, it generates
+    CREATE TABLE statements directly and executes them via spark.sql().
+    """
+    
+    def __init__(self, spark: SparkSession, database_name: str):
+        """
+        Initialize the CDM table creator
+        
+        Args:
+            spark: SparkSession instance
+            database_name: Target database name for CDM tables
+        """
+        self.spark = spark
+        self.database_name = database_name
+
+    def create_cdm_tables(self, 
+                         cdm_version: str = "5.4", 
+                         create_indices: bool = False,
+                         output_folder: Optional[str] = None,
+                         sql_only: bool = False) -> None:
+        """
+        Create OMOP CDM tables equivalent to R CreateCDMTables function
+        
+        This function replaces the R logic that:
+        1. Calls CommonDataModel::executeDdl() to create tables
+        2. Optionally calls CommonDataModel::writeIndex() to create indices
+        3. Handles sqlOnly mode for script generation
+        
+        Instead, it:
+        1. Generates CREATE TABLE SQL statements directly
+        2. Executes them via spark.sql() calls  
+        3. Optionally creates performance indices
+        4. Handles output folder for SQL script generation
+        
+        Args:
+            cdm_version: CDM version ("5.3" or "5.4")
+            create_indices: Whether to create indices after table creation
+            output_folder: Folder for SQL scripts if sql_only=True
+            sql_only: Generate SQL scripts instead of creating tables
+            
+        Raises:
+            ValueError: If unsupported CDM version is specified
+            Exception: If table creation fails
+        """
+        logger.info(f"Creating CDM v{cdm_version} tables...")
+        
+        # Validate CDM version (equivalent to R version check)
+        supported_versions = ["5.3", "5.4"]
+        if cdm_version not in supported_versions:
+            raise ValueError(f'Unsupported CDM specified. Supported CDM versions are "{", ".join(supported_versions)}".')
+        
+        if sql_only:
+            if output_folder is None:
+                raise ValueError("Must specify an outputFolder location when using sql_only = True")
+            self._generate_sql_scripts(cdm_version, output_folder, create_indices)
+        else:
+            self._create_tables_directly(cdm_version, create_indices)
+
+    def _create_tables_directly(self, cdm_version: str, create_indices: bool) -> None:
+        """Create CDM tables directly using spark.sql()"""
+        logger.info("Creating CDM Tables....")
+        
+        # Get table definitions (equivalent to CommonDataModel::executeDdl)
+        table_definitions = self._get_cdm_table_definitions(cdm_version)
+        
+        # Create each table
+        for table_name, create_sql in table_definitions.items():
+            try:
+                # Drop table if exists
+                self.spark.sql(f"DROP TABLE IF EXISTS {self.database_name}.{table_name}")
+                
+                # Create the table
+                self.spark.sql(create_sql)
+                logger.info(f"Created CDM table: {table_name}")
+                
+            except Exception as e:
+                logger.error(f"Failed to create CDM table {table_name}: {str(e)}")
+                raise
+        
+        logger.info("CDM Tables Created.")
+        
+        # Create indices if requested (equivalent to R createIndices logic)
+        if create_indices:
+            self._create_cdm_indices(cdm_version)
+
+    def _generate_sql_scripts(self, cdm_version: str, output_folder: str, create_indices: bool) -> None:
+        """Generate SQL scripts instead of creating tables directly"""
+        import os
+        
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        
+        # Get table definitions
+        table_definitions = self._get_cdm_table_definitions(cdm_version)
+        
+        # Write DDL scripts
+        ddl_file = os.path.join(output_folder, f"cdm_ddl_v{cdm_version.replace('.', '')}.sql")
+        with open(ddl_file, 'w') as f:
+            f.write(f"-- OMOP CDM v{cdm_version} Table Creation Script\\n")
+            f.write(f"-- Generated by PySpark CDMTableCreator\\n\\n")
+            
+            for table_name, create_sql in table_definitions.items():
+                f.write(f"-- Table: {table_name}\\n")
+                f.write(create_sql)
+                f.write("\\n\\n")
+        
+        logger.info(f"DDL script written to: {ddl_file}")
+        
+        # Write index scripts if requested
+        if create_indices:
+            index_file = os.path.join(output_folder, f"cdm_indices_v{cdm_version.replace('.', '')}.sql")
+            index_definitions = self._get_cdm_index_definitions(cdm_version)
+            
+            with open(index_file, 'w') as f:
+                f.write(f"-- OMOP CDM v{cdm_version} Index Creation Script\\n")
+                f.write(f"-- Generated by PySpark CDMTableCreator\\n\\n")
+                
+                for index_name, create_sql in index_definitions.items():
+                    f.write(f"-- Index: {index_name}\\n")
+                    f.write(create_sql)
+                    f.write("\\n\\n")
+            
+            logger.info(f"Index script written to: {index_file}")
+
+    def _create_cdm_indices(self, cdm_version: str) -> None:
+        """Create performance indices on CDM tables"""
+        logger.info("Creating Indices on CDM Tables....")
+        
+        index_definitions = self._get_cdm_index_definitions(cdm_version)
+        
+        for index_name, create_sql in index_definitions.items():
+            try:
+                self.spark.sql(create_sql)
+                logger.info(f"Created index: {index_name}")
+            except Exception as e:
+                logger.warning(f"Failed to create index {index_name}: {str(e)}")
+                # Continue with other indices even if one fails
+        
+        logger.info("Index Creation Complete.")
+
+    def _get_cdm_table_definitions(self, cdm_version: str) -> Dict[str, str]:
+        """
+        Get OMOP CDM table CREATE TABLE statements
+        
+        This replaces the R CommonDataModel::executeDdl() functionality.
+        Tables are based on the official OMOP CDM specification.
+        """
+        
+        # Core clinical data tables
+        tables = {
+            'person': self._create_person_table(),
+            'observation_period': self._create_observation_period_table(),
+            'visit_occurrence': self._create_visit_occurrence_table(),
+            'visit_detail': self._create_visit_detail_table(),
+            'condition_occurrence': self._create_condition_occurrence_table(),
+            'drug_exposure': self._create_drug_exposure_table(),
+            'procedure_occurrence': self._create_procedure_occurrence_table(),
+            'device_exposure': self._create_device_exposure_table(),
+            'measurement': self._create_measurement_table(),
+            'observation': self._create_observation_table(),
+            'death': self._create_death_table(),
+            'note': self._create_note_table(),
+            'specimen': self._create_specimen_table(),
+            
+            # Health system tables
+            'location': self._create_location_table(),
+            'care_site': self._create_care_site_table(),
+            'provider': self._create_provider_table(),
+            
+            # Health economics tables
+            'payer_plan_period': self._create_payer_plan_period_table(),
+            'cost': self._create_cost_table(),
+            
+            # Era tables
+            'drug_era': self._create_drug_era_table(),
+            'dose_era': self._create_dose_era_table(),
+            'condition_era': self._create_condition_era_table(),
+            
+            # Metadata tables
+            'cdm_source': self._create_cdm_source_table(),
+            'metadata': self._create_metadata_table(),
+            
+            # Vocabulary tables
+            'concept': self._create_concept_table(),
+            'vocabulary': self._create_vocabulary_table(),
+            'domain': self._create_domain_table(),
+            'concept_class': self._create_concept_class_table(),
+            'concept_relationship': self._create_concept_relationship_table(),
+            'relationship': self._create_relationship_table(),
+            'concept_synonym': self._create_concept_synonym_table(),
+            'concept_ancestor': self._create_concept_ancestor_table(),
+            'source_to_concept_map': self._create_source_to_concept_map_table(),
+            'drug_strength': self._create_drug_strength_table(),
+        }
+        
+        # Add version-specific tables
+        if cdm_version == "5.4":
+            tables['note_nlp'] = self._create_note_nlp_table()
+        
+        return tables
+
+    def _get_cdm_index_definitions(self, cdm_version: str) -> Dict[str, str]:
+        """Get CDM index definitions for performance optimization"""
+        
+        indices = {
+            'idx_person_id': f'CREATE INDEX idx_person_id ON {self.database_name}.person (person_id)',
+            'idx_visit_person_id': f'CREATE INDEX idx_visit_person_id ON {self.database_name}.visit_occurrence (person_id)',
+            'idx_condition_person_id': f'CREATE INDEX idx_condition_person_id ON {self.database_name}.condition_occurrence (person_id)',
+            'idx_condition_concept_id': f'CREATE INDEX idx_condition_concept_id ON {self.database_name}.condition_occurrence (condition_concept_id)',
+            'idx_drug_person_id': f'CREATE INDEX idx_drug_person_id ON {self.database_name}.drug_exposure (person_id)',
+            'idx_drug_concept_id': f'CREATE INDEX idx_drug_concept_id ON {self.database_name}.drug_exposure (drug_concept_id)',
+            'idx_procedure_person_id': f'CREATE INDEX idx_procedure_person_id ON {self.database_name}.procedure_occurrence (person_id)',
+            'idx_measurement_person_id': f'CREATE INDEX idx_measurement_person_id ON {self.database_name}.measurement (person_id)',
+            'idx_observation_person_id': f'CREATE INDEX idx_observation_person_id ON {self.database_name}.observation (person_id)',
+            'idx_concept_code': f'CREATE INDEX idx_concept_code ON {self.database_name}.concept (concept_code)',
+            'idx_concept_vocabulary_id': f'CREATE INDEX idx_concept_vocabulary_id ON {self.database_name}.concept (vocabulary_id)',
+            'idx_concept_relationship_id_1': f'CREATE INDEX idx_concept_relationship_id_1 ON {self.database_name}.concept_relationship (concept_id_1)',
+            'idx_concept_relationship_id_2': f'CREATE INDEX idx_concept_relationship_id_2 ON {self.database_name}.concept_relationship (concept_id_2)',
+        }
+        
+        return indices
+
+    # Individual table creation methods
+    def _create_person_table(self) -> str:
+        """Create PERSON table"""
+        return f"""
+            CREATE TABLE {self.database_name}.person (
+                person_id BIGINT NOT NULL,
+                gender_concept_id INT NOT NULL,
+                year_of_birth INT NOT NULL,
+                month_of_birth INT,
+                day_of_birth INT,
+                birth_datetime TIMESTAMP,
+                race_concept_id INT NOT NULL,
+                ethnicity_concept_id INT NOT NULL,
+                location_id BIGINT,
+                provider_id BIGINT,
+                care_site_id BIGINT,
+                person_source_value STRING,
+                gender_source_value STRING,
+                gender_source_concept_id INT,
+                race_source_value STRING,
+                race_source_concept_id INT,
+                ethnicity_source_value STRING,
+                ethnicity_source_concept_id INT
+            ) USING DELTA
+        """
+
+    def _create_observation_period_table(self) -> str:
+        """Create OBSERVATION_PERIOD table"""
+        return f"""
+            CREATE TABLE {self.database_name}.observation_period (
+                observation_period_id BIGINT NOT NULL,
+                person_id BIGINT NOT NULL,
+                observation_period_start_date DATE NOT NULL,
+                observation_period_end_date DATE NOT NULL,
+                period_type_concept_id INT NOT NULL
+            ) USING DELTA
+        """
+
+    def _create_visit_occurrence_table(self) -> str:
+        """Create VISIT_OCCURRENCE table"""
+        return f"""
+            CREATE TABLE {self.database_name}.visit_occurrence (
+                visit_occurrence_id BIGINT NOT NULL,
+                person_id BIGINT NOT NULL,
+                visit_concept_id INT NOT NULL,
+                visit_start_date DATE NOT NULL,
+                visit_start_datetime TIMESTAMP,
+                visit_end_date DATE NOT NULL,
+                visit_end_datetime TIMESTAMP,
+                visit_type_concept_id INT NOT NULL,
+                provider_id BIGINT,
+                care_site_id BIGINT,
+                visit_source_value STRING,
+                visit_source_concept_id INT,
+                admitted_from_concept_id INT,
+                admitted_from_source_value STRING,
+                discharged_to_concept_id INT,
+                discharged_to_source_value STRING,
+                preceding_visit_occurrence_id BIGINT
+            ) USING DELTA
+        """
+
+    def _create_visit_detail_table(self) -> str:
+        """Create VISIT_DETAIL table"""
+        return f"""
+            CREATE TABLE {self.database_name}.visit_detail (
+                visit_detail_id BIGINT NOT NULL,
+                person_id BIGINT NOT NULL,
+                visit_detail_concept_id INT NOT NULL,
+                visit_detail_start_date DATE NOT NULL,
+                visit_detail_start_datetime TIMESTAMP,
+                visit_detail_end_date DATE NOT NULL,
+                visit_detail_end_datetime TIMESTAMP,
+                visit_detail_type_concept_id INT NOT NULL,
+                provider_id BIGINT,
+                care_site_id BIGINT,
+                visit_detail_source_value STRING,
+                visit_detail_source_concept_id INT,
+                admitted_from_concept_id INT,
+                admitted_from_source_value STRING,
+                discharged_to_concept_id INT,
+                discharged_to_source_value STRING,
+                preceding_visit_detail_id BIGINT,
+                parent_visit_detail_id BIGINT,
+                visit_occurrence_id BIGINT NOT NULL
+            ) USING DELTA
+        """
+
+    def _create_condition_occurrence_table(self) -> str:
+        """Create CONDITION_OCCURRENCE table"""
+        return f"""
+            CREATE TABLE {self.database_name}.condition_occurrence (
+                condition_occurrence_id BIGINT NOT NULL,
+                person_id BIGINT NOT NULL,
+                condition_concept_id INT NOT NULL,
+                condition_start_date DATE NOT NULL,
+                condition_start_datetime TIMESTAMP,
+                condition_end_date DATE,
+                condition_end_datetime TIMESTAMP,
+                condition_type_concept_id INT NOT NULL,
+                condition_status_concept_id INT,
+                stop_reason STRING,
+                provider_id BIGINT,
+                visit_occurrence_id BIGINT,
+                visit_detail_id BIGINT,
+                condition_source_value STRING,
+                condition_source_concept_id INT,
+                condition_status_source_value STRING
+            ) USING DELTA
+        """
+
+    def _create_drug_exposure_table(self) -> str:
+        """Create DRUG_EXPOSURE table"""
+        return f"""
+            CREATE TABLE {self.database_name}.drug_exposure (
+                drug_exposure_id BIGINT NOT NULL,
+                person_id BIGINT NOT NULL,
+                drug_concept_id INT NOT NULL,
+                drug_exposure_start_date DATE NOT NULL,
+                drug_exposure_start_datetime TIMESTAMP,
+                drug_exposure_end_date DATE NOT NULL,
+                drug_exposure_end_datetime TIMESTAMP,
+                verbatim_end_date DATE,
+                drug_type_concept_id INT NOT NULL,
+                stop_reason STRING,
+                refills INT,
+                quantity DOUBLE,
+                days_supply INT,
+                sig STRING,
+                route_concept_id INT,
+                lot_number STRING,
+                provider_id BIGINT,
+                visit_occurrence_id BIGINT,
+                visit_detail_id BIGINT,
+                drug_source_value STRING,
+                drug_source_concept_id INT,
+                route_source_value STRING,
+                dose_unit_source_value STRING
+            ) USING DELTA
+        """
+
+    # Additional table creation methods would continue here...
+    # For brevity, I'll create a few more key tables and then provide placeholders
+
+    def _create_concept_table(self) -> str:
+        """Create CONCEPT table"""
+        return f"""
+            CREATE TABLE {self.database_name}.concept (
+                concept_id INT NOT NULL,
+                concept_name STRING NOT NULL,
+                domain_id STRING NOT NULL,
+                vocabulary_id STRING NOT NULL,
+                concept_class_id STRING NOT NULL,
+                standard_concept STRING,
+                concept_code STRING NOT NULL,
+                valid_start_date DATE NOT NULL,
+                valid_end_date DATE NOT NULL,
+                invalid_reason STRING
+            ) USING DELTA
+        """
+
+    # Placeholder methods for remaining tables (would be fully implemented)
+    def _create_procedure_occurrence_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.procedure_occurrence (procedure_occurrence_id BIGINT NOT NULL, person_id BIGINT NOT NULL, procedure_concept_id INT NOT NULL, procedure_date DATE NOT NULL, procedure_datetime TIMESTAMP, procedure_type_concept_id INT NOT NULL, modifier_concept_id INT, quantity INT, provider_id BIGINT, visit_occurrence_id BIGINT, visit_detail_id BIGINT, procedure_source_value STRING, procedure_source_concept_id INT, modifier_source_value STRING) USING DELTA"
+    
+    def _create_device_exposure_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.device_exposure (device_exposure_id BIGINT NOT NULL, person_id BIGINT NOT NULL, device_concept_id INT NOT NULL, device_exposure_start_date DATE NOT NULL, device_exposure_start_datetime TIMESTAMP, device_exposure_end_date DATE, device_exposure_end_datetime TIMESTAMP, device_type_concept_id INT NOT NULL, unique_device_id STRING, quantity INT, provider_id BIGINT, visit_occurrence_id BIGINT, visit_detail_id BIGINT, device_source_value STRING, device_source_concept_id INT, unit_concept_id INT, unit_source_value STRING, unit_source_concept_id INT) USING DELTA"
+    
+    def _create_measurement_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.measurement (measurement_id BIGINT NOT NULL, person_id BIGINT NOT NULL, measurement_concept_id INT NOT NULL, measurement_date DATE NOT NULL, measurement_datetime TIMESTAMP, measurement_time STRING, measurement_type_concept_id INT NOT NULL, operator_concept_id INT, value_as_number DOUBLE, value_as_concept_id INT, unit_concept_id INT, range_low DOUBLE, range_high DOUBLE, provider_id BIGINT, visit_occurrence_id BIGINT, visit_detail_id BIGINT, measurement_source_value STRING, measurement_source_concept_id INT, unit_source_value STRING, unit_source_concept_id INT, value_source_value STRING, measurement_event_id BIGINT, meas_event_field_concept_id INT) USING DELTA"
+    
+    def _create_observation_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.observation (observation_id BIGINT NOT NULL, person_id BIGINT NOT NULL, observation_concept_id INT NOT NULL, observation_date DATE NOT NULL, observation_datetime TIMESTAMP, observation_type_concept_id INT NOT NULL, value_as_number DOUBLE, value_as_string STRING, value_as_concept_id INT, qualifier_concept_id INT, unit_concept_id INT, provider_id BIGINT, visit_occurrence_id BIGINT, visit_detail_id BIGINT, observation_source_value STRING, observation_source_concept_id INT, unit_source_value STRING, qualifier_source_value STRING, value_source_value STRING, observation_event_id BIGINT, obs_event_field_concept_id INT) USING DELTA"
+    
+    def _create_death_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.death (person_id BIGINT NOT NULL, death_date DATE NOT NULL, death_datetime TIMESTAMP, death_type_concept_id INT NOT NULL, cause_concept_id INT, cause_source_value STRING, cause_source_concept_id INT) USING DELTA"
+    
+    def _create_note_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.note (note_id BIGINT NOT NULL, person_id BIGINT NOT NULL, note_date DATE NOT NULL, note_datetime TIMESTAMP, note_type_concept_id INT NOT NULL, note_class_concept_id INT NOT NULL, note_title STRING, note_text STRING NOT NULL, encoding_concept_id INT NOT NULL, language_concept_id INT NOT NULL, provider_id BIGINT, visit_occurrence_id BIGINT, visit_detail_id BIGINT, note_source_value STRING) USING DELTA"
+    
+    def _create_note_nlp_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.note_nlp (note_nlp_id BIGINT NOT NULL, note_id BIGINT NOT NULL, section_concept_id INT, snippet STRING, offset STRING, lexical_variant STRING NOT NULL, note_nlp_concept_id INT, note_nlp_source_concept_id INT, nlp_system STRING, nlp_date DATE NOT NULL, nlp_datetime TIMESTAMP, term_exists STRING, term_temporal STRING, term_modifiers STRING) USING DELTA"
+    
+    def _create_specimen_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.specimen (specimen_id BIGINT NOT NULL, person_id BIGINT NOT NULL, specimen_concept_id INT NOT NULL, specimen_type_concept_id INT NOT NULL, specimen_date DATE NOT NULL, specimen_datetime TIMESTAMP, quantity DOUBLE, unit_concept_id INT, anatomic_site_concept_id INT, disease_status_concept_id INT, specimen_source_id STRING, specimen_source_value STRING, unit_source_value STRING, anatomic_site_source_value STRING, disease_status_source_value STRING) USING DELTA"
+    
+    def _create_location_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.location (location_id BIGINT NOT NULL, address_1 STRING, address_2 STRING, city STRING, state STRING, zip STRING, county STRING, location_source_value STRING, country_concept_id INT, country_source_value STRING, latitude DOUBLE, longitude DOUBLE) USING DELTA"
+    
+    def _create_care_site_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.care_site (care_site_id BIGINT NOT NULL, care_site_name STRING, place_of_service_concept_id INT, location_id BIGINT, care_site_source_value STRING, place_of_service_source_value STRING) USING DELTA"
+    
+    def _create_provider_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.provider (provider_id BIGINT NOT NULL, provider_name STRING, npi STRING, dea STRING, specialty_concept_id INT, care_site_id BIGINT, year_of_birth INT, gender_concept_id INT, provider_source_value STRING, specialty_source_value STRING, specialty_source_concept_id INT, gender_source_value STRING, gender_source_concept_id INT) USING DELTA"
+    
+    def _create_payer_plan_period_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.payer_plan_period (payer_plan_period_id BIGINT NOT NULL, person_id BIGINT NOT NULL, payer_plan_period_start_date DATE NOT NULL, payer_plan_period_end_date DATE NOT NULL, payer_concept_id INT, payer_source_value STRING, payer_source_concept_id INT, plan_concept_id INT, plan_source_value STRING, plan_source_concept_id INT, sponsor_concept_id INT, sponsor_source_value STRING, sponsor_source_concept_id INT, family_source_value STRING, stop_reason_concept_id INT, stop_reason_source_value STRING, stop_reason_source_concept_id INT) USING DELTA"
+    
+    def _create_cost_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.cost (cost_id BIGINT NOT NULL, cost_event_id BIGINT NOT NULL, cost_domain_id STRING NOT NULL, cost_type_concept_id INT NOT NULL, currency_concept_id INT, total_charge DOUBLE, total_cost DOUBLE, total_paid DOUBLE, paid_by_payer DOUBLE, paid_by_patient DOUBLE, paid_patient_copay DOUBLE, paid_patient_coinsurance DOUBLE, paid_patient_deductible DOUBLE, paid_by_primary DOUBLE, paid_ingredient_cost DOUBLE, paid_dispensing_fee DOUBLE, payer_plan_period_id BIGINT, amount_allowed DOUBLE, revenue_code_concept_id INT, revenue_code_source_value STRING, drg_concept_id INT, drg_source_value STRING) USING DELTA"
+    
+    def _create_drug_era_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.drug_era (drug_era_id BIGINT NOT NULL, person_id BIGINT NOT NULL, drug_concept_id INT NOT NULL, drug_era_start_date DATE NOT NULL, drug_era_end_date DATE NOT NULL, drug_exposure_count INT, gap_days INT) USING DELTA"
+    
+    def _create_dose_era_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.dose_era (dose_era_id BIGINT NOT NULL, person_id BIGINT NOT NULL, drug_concept_id INT NOT NULL, unit_concept_id INT NOT NULL, dose_value DOUBLE NOT NULL, dose_era_start_date DATE NOT NULL, dose_era_end_date DATE NOT NULL) USING DELTA"
+    
+    def _create_condition_era_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.condition_era (condition_era_id BIGINT NOT NULL, person_id BIGINT NOT NULL, condition_concept_id INT NOT NULL, condition_era_start_date DATE NOT NULL, condition_era_end_date DATE NOT NULL, condition_occurrence_count INT) USING DELTA"
+    
+    def _create_cdm_source_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.cdm_source (cdm_source_name STRING NOT NULL, cdm_source_abbreviation STRING NOT NULL, cdm_holder STRING NOT NULL, source_description STRING, source_documentation_reference STRING, cdm_etl_reference STRING, source_release_date DATE NOT NULL, cdm_release_date DATE NOT NULL, cdm_version STRING, cdm_version_concept_id INT NOT NULL, vocabulary_version STRING NOT NULL) USING DELTA"
+    
+    def _create_metadata_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.metadata (metadata_id INT NOT NULL, metadata_concept_id INT NOT NULL, metadata_type_concept_id INT NOT NULL, name STRING NOT NULL, value_as_string STRING, value_as_concept_id INT, value_as_number DOUBLE, metadata_date DATE, metadata_datetime TIMESTAMP) USING DELTA"
+    
+    def _create_vocabulary_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.vocabulary (vocabulary_id STRING NOT NULL, vocabulary_name STRING NOT NULL, vocabulary_reference STRING NOT NULL, vocabulary_version STRING, vocabulary_concept_id INT NOT NULL) USING DELTA"
+    
+    def _create_domain_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.domain (domain_id STRING NOT NULL, domain_name STRING NOT NULL, domain_concept_id INT NOT NULL) USING DELTA"
+    
+    def _create_concept_class_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.concept_class (concept_class_id STRING NOT NULL, concept_class_name STRING NOT NULL, concept_class_concept_id INT NOT NULL) USING DELTA"
+    
+    def _create_concept_relationship_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.concept_relationship (concept_id_1 INT NOT NULL, concept_id_2 INT NOT NULL, relationship_id STRING NOT NULL, valid_start_date DATE NOT NULL, valid_end_date DATE NOT NULL, invalid_reason STRING) USING DELTA"
+    
+    def _create_relationship_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.relationship (relationship_id STRING NOT NULL, relationship_name STRING NOT NULL, is_hierarchical STRING NOT NULL, defines_ancestry STRING NOT NULL, reverse_relationship_id STRING NOT NULL, relationship_concept_id INT NOT NULL) USING DELTA"
+    
+    def _create_concept_synonym_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.concept_synonym (concept_id INT NOT NULL, concept_synonym_name STRING NOT NULL, language_concept_id INT NOT NULL) USING DELTA"
+    
+    def _create_concept_ancestor_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.concept_ancestor (ancestor_concept_id INT NOT NULL, descendant_concept_id INT NOT NULL, min_levels_of_separation INT NOT NULL, max_levels_of_separation INT NOT NULL) USING DELTA"
+    
+    def _create_source_to_concept_map_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.source_to_concept_map (source_code STRING NOT NULL, source_concept_id INT NOT NULL, source_vocabulary_id STRING NOT NULL, source_code_description STRING, target_concept_id INT NOT NULL, target_vocabulary_id STRING NOT NULL, valid_start_date DATE NOT NULL, valid_end_date DATE NOT NULL, invalid_reason STRING) USING DELTA"
+    
+    def _create_drug_strength_table(self) -> str:
+        return f"CREATE TABLE {self.database_name}.drug_strength (drug_concept_id INT NOT NULL, ingredient_concept_id INT NOT NULL, amount_value DOUBLE, amount_unit_concept_id INT, numerator_value DOUBLE, numerator_unit_concept_id INT, denominator_value DOUBLE, denominator_unit_concept_id INT, box_size INT, valid_start_date DATE NOT NULL, valid_end_date DATE NOT NULL, invalid_reason STRING) USING DELTA"
+
+
+# Convenience function for direct usage
+def create_cdm_tables(spark: SparkSession, 
+                     database_name: str, 
+                     cdm_version: str = "5.4",
+                     create_indices: bool = False) -> None:
+    """
+    Convenience function equivalent to R CreateCDMTables function
+    
+    Args:
+        spark: SparkSession (equivalent to R connectionDetails)
+        database_name: Database name (equivalent to R cdmSchema)
+        cdm_version: CDM version (equivalent to R cdmVersion parameter)
+        create_indices: Create performance indices (equivalent to R createIndices parameter)
+    """
+    creator = CDMTableCreator(spark, database_name)
+    creator.create_cdm_tables(cdm_version, create_indices)

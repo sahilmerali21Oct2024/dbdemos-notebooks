@@ -1,0 +1,145 @@
+# Synthea OMOP ETL Configuration Example
+# =====================================
+# 
+# This is an example configuration file for the PySpark Synthea to OMOP CDM ETL process.
+# Copy this file and customize the paths and settings for your environment.
+#
+# Usage: python run_synthea_etl.py --config synthea_etl_config.yaml
+
+# Spark Configuration
+# Configure PySpark session and database settings
+spark_config:
+  # Spark application name (will appear in Spark UI)
+  app_name: SyntheaOMOPETL_Production
+  
+  # Spark warehouse directory (where tables will be stored)
+  warehouse_dir: /data/spark-warehouse
+  
+  # Database name for OMOP CDM tables
+  database_name: cdm_synthea_v540
+
+# ETL Process Configuration
+# Main ETL parameters equivalent to the R codeToRun.R script
+etl_config:
+  # CDM version ("5.3" or "5.4")
+  cdm_version: "5.4"
+  
+  # Synthea version ("2.7.0", "3.0.0", "3.1.0", "3.2.0", "3.3.0")
+  synthea_version: "2.7.0"
+  
+  # Synthea schema name (for compatibility with R version)
+  synthea_schema: synthea_v270
+  
+  # REQUIRED: Path to Synthea CSV files
+  # This should point to the output/csv directory from running Synthea
+  # Example: After running ./run_synthea -p 1000
+  synthea_file_loc: /path/to/synthea/output/csv
+  
+  # REQUIRED: Path to OMOP Vocabulary CSV files
+  # Download from https://athena.ohdsi.org/
+  # Should contain files like CONCEPT.csv, VOCABULARY.csv, etc.
+  vocab_file_loc: /path/to/vocab/csv
+
+# CDM Source Information
+# Metadata about the data source (will be inserted into CDM_SOURCE table)
+cdm_source_config:
+  cdm_source_name: Synthea synthetic health database
+  cdm_source_abbreviation: Synthea
+  cdm_holder: OHDSI
+  cdm_source_description: >
+    SyntheaTM is a Synthetic Patient Population Simulator. 
+    The goal is to output synthetic, realistic (but not real), 
+    patient data and associated health records in a variety of formats.
+
+# Performance and Optimization Settings
+performance_config:
+  # Create extra indices for better query performance
+  create_extra_indices: true
+  
+  # Cache frequently accessed tables in memory
+  cache_tables: true
+  
+  # Enable adaptive query execution (Spark 3.0+)
+  adaptive_query_execution: true
+
+# Optional: Data Validation Configuration
+validation_config:
+  # Run validation queries after ETL completion
+  run_validation: true
+  
+  # Custom validation queries (optional)
+  custom_validations:
+    - name: "Person demographics validation"
+      query: >
+        SELECT 
+          CASE 
+            WHEN gender_concept_id = 8507 THEN 'Male'
+            WHEN gender_concept_id = 8532 THEN 'Female' 
+            ELSE 'Other'
+          END as gender,
+          COUNT(*) as count
+        FROM person 
+        GROUP BY gender_concept_id
+    
+    - name: "Age distribution"
+      query: >
+        SELECT 
+          FLOOR((YEAR(CURRENT_DATE) - year_of_birth) / 10) * 10 as age_group,
+          COUNT(*) as count
+        FROM person 
+        WHERE year_of_birth IS NOT NULL
+        GROUP BY FLOOR((YEAR(CURRENT_DATE) - year_of_birth) / 10) * 10
+        ORDER BY age_group
+
+# Optional: Advanced Spark Configuration
+# Uncomment and modify as needed for your cluster environment
+advanced_spark_config:
+  # Memory settings
+  # spark.driver.memory: 4g
+  # spark.executor.memory: 8g
+  # spark.driver.maxResultSize: 2g
+  
+  # Parallelism settings  
+  # spark.default.parallelism: 200
+  # spark.sql.shuffle.partitions: 200
+  
+  # Serialization
+  # spark.serializer: org.apache.spark.serializer.KryoSerializer
+  
+  # Adaptive query execution
+  # spark.sql.adaptive.enabled: true
+  # spark.sql.adaptive.coalescePartitions.enabled: true
+  
+  # Dynamic allocation (for YARN/K8s clusters)
+  # spark.dynamicAllocation.enabled: true
+  # spark.dynamicAllocation.minExecutors: 1
+  # spark.dynamicAllocation.maxExecutors: 10
+
+# Optional: Database Connection Settings
+# Uncomment if you want to write results to an external database instead of Spark tables
+# database_config:
+#   # Database type: postgresql, sqlserver, mysql, oracle
+#   dbms: postgresql
+#   
+#   # Connection settings
+#   server: localhost
+#   port: 5432
+#   database: omop_cdm
+#   
+#   # Credentials (consider using environment variables)
+#   username: omop_user
+#   password: ${DATABASE_PASSWORD}  # Set environment variable
+#   
+#   # JDBC driver path (if needed)
+#   driver_path: /path/to/jdbc/driver.jar
+
+# Optional: Logging Configuration
+logging_config:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  log_level: INFO
+  
+  # Log file path
+  log_file: synthea_etl.log
+  
+  # Include Spark logs
+  include_spark_logs: false
